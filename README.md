@@ -121,3 +121,11 @@ infra/
 - `docs/decisions/ADR-0003-shared-public-contracts.md`
 - `docs/decisions/ADR-0004-order-idempotency-and-court-locking.md`
 - `docs/decisions/ADR-0005-username-database-session.md`
+
+## Step 6 — Admin realtime
+
+- Protected SSE endpoint: `GET /api/admin/events`.
+- New customer orders publish `order.created` after the database transaction commits.
+- Admin dashboard invalidates its snapshot query when the event arrives.
+- Native EventSource reconnects automatically; dashboard polling every 15 seconds is the fallback while disconnected.
+- The V1 event bus is in-memory because production runs one API process.

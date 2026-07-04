@@ -17,6 +17,7 @@ import {
   type AdminAuthService,
 } from './admin-auth-service.js';
 import type { AdminDashboardRepository } from './admin-dashboard-repository.js';
+import { createAdminRealtimeHub } from './admin-realtime-hub.js';
 
 const rawToken = 'a'.repeat(43);
 
@@ -272,4 +273,26 @@ void test('GET admin dashboard returns the protected typed snapshot', async (con
   const dashboard = adminDashboardResponseSchema.parse(response.json());
   assert.equal(dashboard.servicePoints[0]?.pendingOrderCount, 2);
   assert.equal(dashboard.servicePoints[0]?.openBill?.totalVnd, 120_000);
+});
+
+void test('GET admin events rejects unauthenticated requests', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: createAuthService(),
+      adminRealtimeHub: createAdminRealtimeHub(),
+    },
+  );
+
+  context.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/admin/events',
+  });
+
+  assert.equal(response.statusCode, 401);
+  assert.equal(authApiErrorSchema.parse(response.json()).code, 'AUTHENTICATION_REQUIRED');
 });

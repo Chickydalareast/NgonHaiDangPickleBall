@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router';
 
 import { AdminApiError, getAdminDashboard, getAdminSession, logoutAdmin } from '../lib/admin-api';
+import { useAdminRealtime } from '../lib/admin-realtime';
 
 const moneyFormatter = new Intl.NumberFormat('vi-VN', {
   style: 'currency',
@@ -23,12 +24,14 @@ export function AdminDashboardPage() {
     retry: false,
     staleTime: 60_000,
   });
+  const realtimeStatus = useAdminRealtime(sessionQuery.isSuccess);
   const dashboardQuery = useQuery({
     queryKey: ['admin', 'dashboard'],
     queryFn: getAdminDashboard,
     enabled: sessionQuery.isSuccess,
     retry: false,
     staleTime: 10_000,
+    refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
   });
   const logoutMutation = useMutation({
     mutationFn: logoutAdmin,
@@ -102,14 +105,27 @@ export function AdminDashboardPage() {
               Xin chào {admin.displayName} · @{admin.username}
             </p>
           </div>
-          <button
-            type="button"
-            disabled={logoutMutation.isPending}
-            onClick={() => logoutMutation.mutate()}
-            className="rounded-xl border border-line px-4 py-3 font-bold transition hover:border-brand hover:text-brand disabled:opacity-60"
-          >
-            {logoutMutation.isPending ? 'Đang đăng xuất…' : 'Đăng xuất'}
-          </button>
+          <div className="flex flex-col items-start gap-3 sm:items-end">
+            <p
+              className={`rounded-full px-3 py-1 text-xs font-black ${
+                realtimeStatus === 'connected'
+                  ? 'bg-success-soft text-success'
+                  : 'bg-neutral-soft text-muted'
+              }`}
+            >
+              {realtimeStatus === 'connected'
+                ? 'Realtime đang kết nối'
+                : 'Polling dự phòng mỗi 15 giây'}
+            </p>
+            <button
+              type="button"
+              disabled={logoutMutation.isPending}
+              onClick={() => logoutMutation.mutate()}
+              className="rounded-xl border border-line px-4 py-3 font-bold transition hover:border-brand hover:text-brand disabled:opacity-60"
+            >
+              {logoutMutation.isPending ? 'Đang đăng xuất…' : 'Đăng xuất'}
+            </button>
+          </div>
         </header>
 
         <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">

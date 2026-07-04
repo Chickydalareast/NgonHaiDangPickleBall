@@ -27,6 +27,13 @@ export {
 } from './admin-dashboard.js';
 
 export {
+  adminRealtimeEventSchema,
+  adminRealtimeOrderCreatedEventSchema,
+  type AdminRealtimeEvent,
+  type AdminRealtimeOrderCreatedEvent,
+} from './admin-realtime.js';
+
+export {
   createOrderApiErrorSchema,
   createOrderLineRequestSchema,
   createOrderRequestSchema,

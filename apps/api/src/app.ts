@@ -9,6 +9,8 @@ import { registerAdminAuthRoutes } from './admin/admin-auth-routes.js';
 import type { AdminAuthService } from './admin/admin-auth-service.js';
 import type { AdminDashboardRepository } from './admin/admin-dashboard-repository.js';
 import { registerAdminDashboardRoutes } from './admin/admin-dashboard-routes.js';
+import type { AdminRealtimeHub } from './admin/admin-realtime-hub.js';
+import { registerAdminRealtimeRoutes } from './admin/admin-realtime-routes.js';
 import { registerCreateOrderRoutes } from './order/create-order-routes.js';
 import type { CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
@@ -29,6 +31,7 @@ export interface AppDependencies {
   adminAuthService?: AdminAuthService;
   adminCookieSecure?: boolean;
   adminDashboardRepository?: AdminDashboardRepository;
+  adminRealtimeHub?: AdminRealtimeHub;
   createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
 }
@@ -76,8 +79,11 @@ export function buildApp(
     });
   }
 
-  if (dependencies.adminDashboardRepository && !dependencies.adminAuthService) {
-    throw new Error('Admin dashboard requires the admin auth service.');
+  if (
+    (dependencies.adminDashboardRepository || dependencies.adminRealtimeHub) &&
+    !dependencies.adminAuthService
+  ) {
+    throw new Error('Admin routes require the admin auth service.');
   }
 
   if (dependencies.adminAuthService) {
@@ -96,6 +102,13 @@ export function buildApp(
     if (dependencies.adminDashboardRepository) {
       registerAdminDashboardRoutes(app, {
         repository: dependencies.adminDashboardRepository,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminRealtimeHub) {
+      registerAdminRealtimeRoutes(app, {
+        hub: dependencies.adminRealtimeHub,
         requireAdmin,
       });
     }

@@ -16,7 +16,8 @@
     "db:verify:empty": "tsx src/db/verify-empty.ts",
     "public:verify:db": "tsx src/public-context/verify.ts",
     "order:verify:db": "tsx src/order/verify.ts",
-    "auth:verify:db": "tsx src/admin/verify.ts"
+    "auth:verify:db": "tsx src/admin/verify.ts",
+    "realtime:verify:db": "tsx src/admin/realtime-verify.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.0.2",

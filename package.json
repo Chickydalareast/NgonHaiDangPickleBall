@@ -47,7 +47,9 @@
     "order:verify:db": "tsx apps/api/src/order/verify.ts",
     "order:verify": "tsx scripts/verify-create-order.ts",
     "auth:verify:db": "tsx apps/api/src/admin/verify.ts",
-    "auth:verify": "tsx scripts/verify-admin-auth.ts"
+    "auth:verify": "tsx scripts/verify-admin-auth.ts",
+    "realtime:verify:db": "tsx apps/api/src/admin/realtime-verify.ts",
+    "realtime:verify": "tsx scripts/verify-admin-realtime.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

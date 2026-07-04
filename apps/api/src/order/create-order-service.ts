@@ -1,5 +1,7 @@
 import {
+  adminRealtimeEventSchema,
   createOrderResponseSchema,
+  type AdminRealtimeEvent,
   type CreateOrderRequest,
   type CreateOrderResponse,
 } from '@nhdp/contracts';
@@ -31,6 +33,10 @@ export interface CreateOrderCommand {
 
 export interface CreateOrderService {
   create(command: CreateOrderCommand): Promise<CreateOrderResponse>;
+}
+
+export interface OrderCreatedEventPublisher {
+  publish(event: AdminRealtimeEvent): void;
 }
 
 interface ServicePointRow extends QueryResultRow {
@@ -242,10 +248,13 @@ function normalizeNote(note: string | null | undefined): string | null {
   return normalized.length === 0 ? null : normalized;
 }
 
-export function createOrderService(pool: Pool): CreateOrderService {
+export function createOrderService(
+  pool: Pool,
+  eventPublisher?: OrderCreatedEventPublisher,
+): CreateOrderService {
   return {
     async create(command): Promise<CreateOrderResponse> {
-      return withTransaction(pool, async (client) => {
+      const result = await withTransaction(pool, async (client) => {
         await acquireTransactionLock(client, `order-idempotency:${command.request.idempotencyKey}`);
 
         const servicePoint = await findActiveServicePoint(client, command.servicePointSlug);
@@ -265,7 +274,7 @@ export function createOrderService(pool: Pool): CreateOrderService {
         );
 
         if (existing) {
-          return existing;
+          return { response: existing, event: null };
         }
 
         await acquireTransactionLock(client, `open-bill:${servicePoint.id}`);
@@ -455,8 +464,26 @@ export function createOrderService(pool: Pool): CreateOrderService {
           throw new Error('Created order could not be read back.');
         }
 
-        return response;
+        return {
+          response,
+          event: adminRealtimeEventSchema.parse({
+            type: 'order.created',
+            servicePointId: servicePoint.id,
+            billId: response.bill.id,
+            orderId: response.order.id,
+          }),
+        };
       });
+
+      if (result.event && eventPublisher) {
+        try {
+          eventPublisher.publish(result.event);
+        } catch {
+          // Realtime delivery is advisory and must not invalidate a committed order.
+        }
+      }
+
+      return result.response;
     },
   };
 }
