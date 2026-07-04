@@ -1,6 +1,6 @@
-# Architecture 0004 — Create Order Transaction
+﻿# Architecture 0004 — Create Order Transaction
 
-Status: **IMPLEMENTED_PENDING_CTO_VERIFICATION**
+Status: **IMPLEMENTED**
 
 ## Scope
 
