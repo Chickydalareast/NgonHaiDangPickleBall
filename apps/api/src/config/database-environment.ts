@@ -22,10 +22,11 @@ const databaseEnvironmentSchema = z.object({
 });
 
 const seedEnvironmentSchema = databaseEnvironmentSchema.extend({
-  ADMIN_SEED_EMAIL: z
+  ADMIN_SEED_USERNAME: z
     .string()
-    .email()
-    .transform((value) => value.toLowerCase()),
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9._-]{3,50}$/),
   ADMIN_SEED_PASSWORD: z.string().min(16).max(200),
 });
 

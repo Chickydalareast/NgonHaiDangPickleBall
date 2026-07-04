@@ -226,7 +226,7 @@ export async function seedDatabase(
         const existingAdmin = await tx
           .select({ id: adminUsers.id })
           .from(adminUsers)
-          .where(eq(adminUsers.email, seedEnvironment.ADMIN_SEED_EMAIL))
+          .where(eq(adminUsers.username, seedEnvironment.ADMIN_SEED_USERNAME))
           .limit(1);
 
         let adminCreated = false;
@@ -244,7 +244,7 @@ export async function seedDatabase(
           }
 
           await tx.insert(adminUsers).values({
-            email: seedEnvironment.ADMIN_SEED_EMAIL,
+            username: seedEnvironment.ADMIN_SEED_USERNAME,
             passwordHash,
             displayName: 'Administrator',
             role: 'ADMIN',

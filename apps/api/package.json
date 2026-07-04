@@ -15,9 +15,11 @@
     "db:verify": "tsx src/db/verify.ts",
     "db:verify:empty": "tsx src/db/verify-empty.ts",
     "public:verify:db": "tsx src/public-context/verify.ts",
-    "order:verify:db": "tsx src/order/verify.ts"
+    "order:verify:db": "tsx src/order/verify.ts",
+    "auth:verify:db": "tsx src/admin/verify.ts"
   },
   "dependencies": {
+    "@fastify/cookie": "11.0.2",
     "@nhdp/contracts": "workspace:*",
     "@node-rs/argon2": "2.0.2",
     "dotenv": "^17.4.2",

@@ -9,6 +9,7 @@ Clean VPS-first rebuild of the **QR ordering + live court bill** V1.
 - Step 2: Drizzle schema, SQL migration, seed and database verification
 - Step 3: public court context from PostgreSQL to customer menu
 - Step 4: customer cart and transactional order creation with idempotency
+- Step 5: username/password admin authentication and read-only court dashboard
 
 ## Requirements
 
@@ -31,6 +32,7 @@ pnpm compose:up
 pnpm smoke
 pnpm public:verify
 pnpm order:verify
+pnpm auth:verify
 ```
 
 Customer menu:
@@ -77,6 +79,7 @@ pnpm db:seed
 pnpm db:verify
 pnpm public:verify:db
 pnpm order:verify:db
+pnpm auth:verify:db
 ```
 
 Additional Step 2 verification:
@@ -112,7 +115,9 @@ infra/
 - `docs/architecture/0002-database-foundation.md`
 - `docs/architecture/0003-public-context-vertical-slice.md`
 - `docs/architecture/0004-create-order-transaction.md`
+- `docs/architecture/0005-admin-auth-dashboard.md`
 - `docs/decisions/ADR-0001-clean-rebuild.md`
 - `docs/decisions/ADR-0002-postgresql-schema-and-migrations.md`
 - `docs/decisions/ADR-0003-shared-public-contracts.md`
 - `docs/decisions/ADR-0004-order-idempotency-and-court-locking.md`
+- `docs/decisions/ADR-0005-username-database-session.md`

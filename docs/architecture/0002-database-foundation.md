@@ -47,7 +47,7 @@ The TypeScript schema and generated SQL migration are both committed. Production
 
 ## Seed policy
 
-The seed is safe to rerun. Natural keys (`slug`, `email`) prevent duplicates. Existing admin passwords are not silently overwritten. The local admin password is read from ignored `.env`; it must be changed before any non-local deployment.
+The seed is safe to rerun. Natural keys (`slug`, `username`) prevent duplicates. Existing admin passwords are not silently overwritten. The local admin username/password is read from ignored `.env`; it must be changed before any non-local deployment.
 
 ## Verification
 

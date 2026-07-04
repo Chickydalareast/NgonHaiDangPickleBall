@@ -3,6 +3,8 @@ import { Navigate, Route, Routes } from 'react-router';
 import { CartProvider } from './cart/cart-context';
 import { CustomerCartPage } from './pages/customer-cart-page';
 import { CustomerMenuPage } from './pages/customer-menu-page';
+import { AdminDashboardPage } from './pages/admin-dashboard-page';
+import { AdminLoginPage } from './pages/admin-login-page';
 import { OrderSuccessPage } from './pages/order-success-page';
 
 function NotFoundPage() {
@@ -30,6 +32,8 @@ export function App() {
         <Route path="/s/:slug" element={<CustomerMenuPage />} />
         <Route path="/s/:slug/cart" element={<CustomerCartPage />} />
         <Route path="/s/:slug/order-success" element={<OrderSuccessPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route path="/admin" element={<AdminDashboardPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </CartProvider>

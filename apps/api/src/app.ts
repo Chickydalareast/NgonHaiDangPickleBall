@@ -1,8 +1,14 @@
-﻿import type { Server as HttpServer } from 'node:http';
+import type { Server as HttpServer } from 'node:http';
 
 import type { PublicServicePointContext } from '@nhdp/contracts';
+import fastifyCookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { createRequireAdmin } from './admin/admin-auth-guard.js';
+import { registerAdminAuthRoutes } from './admin/admin-auth-routes.js';
+import type { AdminAuthService } from './admin/admin-auth-service.js';
+import type { AdminDashboardRepository } from './admin/admin-dashboard-repository.js';
+import { registerAdminDashboardRoutes } from './admin/admin-dashboard-routes.js';
 import { registerCreateOrderRoutes } from './order/create-order-routes.js';
 import type { CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
@@ -20,6 +26,9 @@ export interface HealthResponse {
 }
 
 export interface AppDependencies {
+  adminAuthService?: AdminAuthService;
+  adminCookieSecure?: boolean;
+  adminDashboardRepository?: AdminDashboardRepository;
   createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
 }
@@ -34,7 +43,7 @@ export function buildApp(
     ...options,
     ajv: {
       customOptions: {
-        // Không âm thầm xóa field lạ khỏi request tài chính.
+        // Không âm thầm xóa field lạ khỏi request tài chính hoặc auth.
         // additionalProperties: false phải trả validation error.
         removeAdditional: false,
       },
@@ -65,6 +74,31 @@ export function buildApp(
     registerCreateOrderRoutes(app, {
       service: dependencies.createOrderService,
     });
+  }
+
+  if (dependencies.adminDashboardRepository && !dependencies.adminAuthService) {
+    throw new Error('Admin dashboard requires the admin auth service.');
+  }
+
+  if (dependencies.adminAuthService) {
+    void app.register(fastifyCookie);
+    app.decorateRequest('adminSession', null);
+    app.decorateRequest('adminSessionToken', null);
+
+    const requireAdmin = createRequireAdmin(dependencies.adminAuthService);
+
+    registerAdminAuthRoutes(app, {
+      service: dependencies.adminAuthService,
+      requireAdmin,
+      secureCookie: dependencies.adminCookieSecure ?? false,
+    });
+
+    if (dependencies.adminDashboardRepository) {
+      registerAdminDashboardRoutes(app, {
+        repository: dependencies.adminDashboardRepository,
+        requireAdmin,
+      });
+    }
   }
 
   return app;

@@ -168,9 +168,9 @@ export async function verifyDatabaseFoundation(
       `
         SELECT password_hash AS "passwordHash"
         FROM admin_users
-        WHERE email = $1
+        WHERE username = $1
       `,
-      [seedEnvironment.ADMIN_SEED_EMAIL],
+      [seedEnvironment.ADMIN_SEED_USERNAME],
     );
     const admin = adminResult.rows[0];
 

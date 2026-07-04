@@ -45,7 +45,7 @@ export const adminUsers = pgTable(
     id: uuid('id')
       .primaryKey()
       .default(sql`uuidv7()`),
-    email: varchar('email', { length: 320 }).notNull().unique(),
+    username: varchar('username', { length: 50 }).notNull().unique(),
     passwordHash: text('password_hash').notNull(),
     displayName: varchar('display_name', { length: 120 }).notNull(),
     role: adminRoleEnum('role').notNull().default('ADMIN'),
@@ -55,7 +55,7 @@ export const adminUsers = pgTable(
     updatedAt,
   },
   (table) => [
-    check('admin_users_email_lowercase_check', sql`${table.email} = lower(${table.email})`),
+    check('admin_users_username_format_check', sql`${table.username} ~ '^[a-z0-9._-]{3,50}$'`),
     index('admin_users_status_idx').on(table.status),
   ],
 );

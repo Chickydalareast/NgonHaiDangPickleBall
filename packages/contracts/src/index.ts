@@ -5,6 +5,28 @@ export type IdempotencyKey = string;
 export type MoneyVnd = number;
 
 export {
+  adminIdentitySchema,
+  adminUsernameSchema,
+  authApiErrorSchema,
+  authSessionResponseSchema,
+  loginRequestSchema,
+  logoutResponseSchema,
+  type AdminIdentity,
+  type AdminUsername,
+  type AuthApiError,
+  type AuthSessionResponse,
+  type LoginRequest,
+  type LogoutResponse,
+} from './admin-auth.js';
+
+export {
+  adminDashboardResponseSchema,
+  adminDashboardServicePointSchema,
+  type AdminDashboardResponse,
+  type AdminDashboardServicePoint,
+} from './admin-dashboard.js';
+
+export {
   createOrderApiErrorSchema,
   createOrderLineRequestSchema,
   createOrderRequestSchema,

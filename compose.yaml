@@ -88,7 +88,7 @@ services:
     environment:
       NODE_ENV: production
       <<: *database-environment
-      ADMIN_SEED_EMAIL: ${ADMIN_SEED_EMAIL:-admin@nhdp.local}
+      ADMIN_SEED_USERNAME: ${ADMIN_SEED_USERNAME:-admin}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-change-this-local-admin-password}
     depends_on:
       postgres:

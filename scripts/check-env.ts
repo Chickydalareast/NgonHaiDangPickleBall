@@ -23,7 +23,7 @@ const environmentSchema = z
         'DATABASE_URL must use the postgresql:// or postgres:// protocol',
       ),
     DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(20),
-    ADMIN_SEED_EMAIL: z.string().email(),
+    ADMIN_SEED_USERNAME: z.string().regex(/^[a-z0-9._-]{3,50}$/),
     ADMIN_SEED_PASSWORD: z.string().min(16).max(200),
     SESSION_SECRET: z.string().min(32),
     WEB_ORIGIN: z.url(),

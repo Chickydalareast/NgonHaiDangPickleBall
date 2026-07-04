@@ -3,6 +3,8 @@ import { resolve } from 'node:path';
 
 import { config as loadDotenv } from 'dotenv';
 
+import { createAdminAuthService } from './admin/admin-auth-service.js';
+import { createAdminDashboardRepository } from './admin/admin-dashboard-repository.js';
 import { buildApp } from './app.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
 import { readApiEnvironment } from './config/environment.js';
@@ -33,6 +35,7 @@ const database = createDatabaseConnection(databaseEnvironment.DATABASE_URL, {
   applicationName: 'nhdp-api',
   maxConnections: databaseEnvironment.DATABASE_POOL_MAX,
 });
+const adminAuthService = createAdminAuthService(database.pool, apiEnvironment.SESSION_SECRET);
 
 const app = buildApp(
   {
@@ -41,6 +44,9 @@ const app = buildApp(
     },
   },
   {
+    adminAuthService,
+    adminCookieSecure: new URL(apiEnvironment.WEB_ORIGIN).protocol === 'https:',
+    adminDashboardRepository: createAdminDashboardRepository(database.pool),
     createOrderService: createOrderService(database.pool),
     publicContextRepository: createPublicContextRepository(database.db),
   },
