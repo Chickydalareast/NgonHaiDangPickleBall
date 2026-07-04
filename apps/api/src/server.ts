@@ -5,6 +5,7 @@ import { config as loadDotenv } from 'dotenv';
 
 import { createAdminAuthService } from './admin/admin-auth-service.js';
 import { createAdminDashboardRepository } from './admin/admin-dashboard-repository.js';
+import { createAdminOrderOperationsService } from './admin/admin-order-operations-service.js';
 import { createAdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { buildApp } from './app.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
@@ -49,6 +50,7 @@ const app = buildApp(
     adminAuthService,
     adminCookieSecure: new URL(apiEnvironment.WEB_ORIGIN).protocol === 'https:',
     adminDashboardRepository: createAdminDashboardRepository(database.pool),
+    adminOrderOperationsService: createAdminOrderOperationsService(database.pool, adminRealtimeHub),
     adminRealtimeHub,
     createOrderService: createOrderService(database.pool, adminRealtimeHub),
     publicContextRepository: createPublicContextRepository(database.db),

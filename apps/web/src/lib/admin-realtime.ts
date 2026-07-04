@@ -12,6 +12,14 @@ function parseRealtimeEvent(message: MessageEvent<string>): AdminRealtimeEvent |
   }
 }
 
+const eventTypes: AdminRealtimeEvent['type'][] = [
+  'order.created',
+  'order.accepted',
+  'order.served',
+  'order.cancelled',
+  'bill.updated',
+];
+
 export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<Exclude<AdminRealtimeStatus, 'idle'>>('connecting');
@@ -37,21 +45,28 @@ export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {
       }
     };
 
-    const handleOrderCreated = (event: Event): void => {
+    const handleEvent = (event: Event): void => {
       const parsed = parseRealtimeEvent(event as MessageEvent<string>);
 
-      if (parsed?.type !== 'order.created') {
+      if (!parsed) {
         return;
       }
 
       void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'bill', parsed.billId] });
     };
 
-    eventSource.addEventListener('order.created', handleOrderCreated);
+    for (const eventType of eventTypes) {
+      eventSource.addEventListener(eventType, handleEvent);
+    }
 
     return () => {
       disposed = true;
-      eventSource.removeEventListener('order.created', handleOrderCreated);
+
+      for (const eventType of eventTypes) {
+        eventSource.removeEventListener(eventType, handleEvent);
+      }
+
       eventSource.close();
     };
   }, [enabled, queryClient]);

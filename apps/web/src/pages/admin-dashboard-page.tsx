@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 
 import { AdminApiError, getAdminDashboard, getAdminSession, logoutAdmin } from '../lib/admin-api';
 import { useAdminRealtime } from '../lib/admin-realtime';
@@ -179,6 +179,15 @@ export function AdminDashboardPage() {
                     <dd className="mt-2 text-lg font-black">{servicePoint.pendingOrderCount}</dd>
                   </div>
                 </dl>
+
+                {servicePoint.openBill ? (
+                  <Link
+                    to={`/admin/bills/${servicePoint.openBill.id}`}
+                    className="mt-4 flex w-full justify-center rounded-xl bg-brand px-4 py-3 text-sm font-black text-white"
+                  >
+                    Mở bill và xử lý order
+                  </Link>
+                ) : null}
 
                 {servicePoint.hasPendingServiceRequest ? (
                   <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm font-black text-danger">

@@ -129,3 +129,12 @@ infra/
 - Admin dashboard invalidates its snapshot query when the event arrives.
 - Native EventSource reconnects automatically; dashboard polling every 15 seconds is the fallback while disconnected.
 - The V1 event bus is in-memory because production runs one API process.
+
+## Step 7 — Order operations
+
+Admin có thể mở bill, chấp nhận/phục vụ/hủy order, thêm món thủ công, đổi số lượng line chưa phục vụ và void line. Mọi mutation khóa theo bill, dùng giá server-authoritative, ghi activity log và tính lại order/bill trong cùng transaction.
+
+```bash
+pnpm operations:verify:db
+pnpm operations:verify
+```

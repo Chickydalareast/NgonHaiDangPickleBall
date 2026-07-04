@@ -1,13 +1,24 @@
 import {
+  addAdminBillItemRequestSchema,
+  adminBillDetailResponseSchema,
   adminDashboardResponseSchema,
+  adminOrderOperationApiErrorSchema,
   authApiErrorSchema,
   authSessionResponseSchema,
   loginRequestSchema,
   logoutResponseSchema,
+  updateAdminOrderLineRequestSchema,
+  updateAdminOrderStatusRequestSchema,
+  voidAdminOrderLineRequestSchema,
+  type AddAdminBillItemRequest,
+  type AdminBillDetailResponse,
   type AdminDashboardResponse,
   type AuthSessionResponse,
   type LoginRequest,
   type LogoutResponse,
+  type UpdateAdminOrderLineRequest,
+  type UpdateAdminOrderStatusRequest,
+  type VoidAdminOrderLineRequest,
 } from '@nhdp/contracts';
 
 export class AdminApiError extends Error {
@@ -48,10 +59,20 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   const body = await readJson(response);
 
   if (!response.ok) {
-    const parsedError = authApiErrorSchema.safeParse(body);
+    const authError = authApiErrorSchema.safeParse(body);
 
-    if (parsedError.success) {
-      throw new AdminApiError(response.status, parsedError.data.code, parsedError.data.message);
+    if (authError.success) {
+      throw new AdminApiError(response.status, authError.data.code, authError.data.message);
+    }
+
+    const operationError = adminOrderOperationApiErrorSchema.safeParse(body);
+
+    if (operationError.success) {
+      throw new AdminApiError(
+        response.status,
+        operationError.data.code,
+        operationError.data.message,
+      );
     }
 
     throw new AdminApiError(
@@ -64,17 +85,19 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
   return body;
 }
 
+function jsonRequest(method: string, body: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  };
+}
+
 export async function loginAdmin(values: LoginRequest): Promise<AuthSessionResponse> {
   const payload = loginRequestSchema.parse(values);
-  const body = await request('/api/auth/login', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  return authSessionResponseSchema.parse(body);
+  return authSessionResponseSchema.parse(
+    await request('/api/auth/login', jsonRequest('POST', payload)),
+  );
 }
 
 export async function getAdminSession(): Promise<AuthSessionResponse> {
@@ -87,4 +110,62 @@ export async function logoutAdmin(): Promise<LogoutResponse> {
 
 export async function getAdminDashboard(): Promise<AdminDashboardResponse> {
   return adminDashboardResponseSchema.parse(await request('/api/admin/dashboard'));
+}
+
+export async function getAdminBill(billId: string): Promise<AdminBillDetailResponse> {
+  return adminBillDetailResponseSchema.parse(
+    await request(`/api/admin/bills/${encodeURIComponent(billId)}`),
+  );
+}
+
+export async function updateAdminOrderStatus(
+  orderId: string,
+  values: UpdateAdminOrderStatusRequest,
+): Promise<AdminBillDetailResponse> {
+  const payload = updateAdminOrderStatusRequestSchema.parse(values);
+  return adminBillDetailResponseSchema.parse(
+    await request(
+      `/api/admin/orders/${encodeURIComponent(orderId)}/status`,
+      jsonRequest('PATCH', payload),
+    ),
+  );
+}
+
+export async function addAdminBillItem(
+  billId: string,
+  values: AddAdminBillItemRequest,
+): Promise<AdminBillDetailResponse> {
+  const payload = addAdminBillItemRequestSchema.parse(values);
+  return adminBillDetailResponseSchema.parse(
+    await request(
+      `/api/admin/bills/${encodeURIComponent(billId)}/items`,
+      jsonRequest('POST', payload),
+    ),
+  );
+}
+
+export async function updateAdminOrderLine(
+  lineId: string,
+  values: UpdateAdminOrderLineRequest,
+): Promise<AdminBillDetailResponse> {
+  const payload = updateAdminOrderLineRequestSchema.parse(values);
+  return adminBillDetailResponseSchema.parse(
+    await request(
+      `/api/admin/order-lines/${encodeURIComponent(lineId)}`,
+      jsonRequest('PATCH', payload),
+    ),
+  );
+}
+
+export async function voidAdminOrderLine(
+  lineId: string,
+  values: VoidAdminOrderLineRequest,
+): Promise<AdminBillDetailResponse> {
+  const payload = voidAdminOrderLineRequestSchema.parse(values);
+  return adminBillDetailResponseSchema.parse(
+    await request(
+      `/api/admin/order-lines/${encodeURIComponent(lineId)}/void`,
+      jsonRequest('POST', payload),
+    ),
+  );
 }

@@ -8,6 +8,8 @@ import { createRequireAdmin } from './admin/admin-auth-guard.js';
 import { registerAdminAuthRoutes } from './admin/admin-auth-routes.js';
 import type { AdminAuthService } from './admin/admin-auth-service.js';
 import type { AdminDashboardRepository } from './admin/admin-dashboard-repository.js';
+import { registerAdminOrderOperationsRoutes } from './admin/admin-order-operations-routes.js';
+import type { AdminOrderOperationsService } from './admin/admin-order-operations-service.js';
 import { registerAdminDashboardRoutes } from './admin/admin-dashboard-routes.js';
 import type { AdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { registerAdminRealtimeRoutes } from './admin/admin-realtime-routes.js';
@@ -31,6 +33,7 @@ export interface AppDependencies {
   adminAuthService?: AdminAuthService;
   adminCookieSecure?: boolean;
   adminDashboardRepository?: AdminDashboardRepository;
+  adminOrderOperationsService?: AdminOrderOperationsService;
   adminRealtimeHub?: AdminRealtimeHub;
   createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
@@ -80,7 +83,9 @@ export function buildApp(
   }
 
   if (
-    (dependencies.adminDashboardRepository || dependencies.adminRealtimeHub) &&
+    (dependencies.adminDashboardRepository ||
+      dependencies.adminOrderOperationsService ||
+      dependencies.adminRealtimeHub) &&
     !dependencies.adminAuthService
   ) {
     throw new Error('Admin routes require the admin auth service.');
@@ -102,6 +107,13 @@ export function buildApp(
     if (dependencies.adminDashboardRepository) {
       registerAdminDashboardRoutes(app, {
         repository: dependencies.adminDashboardRepository,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminOrderOperationsService) {
+      registerAdminOrderOperationsRoutes(app, {
+        service: dependencies.adminOrderOperationsService,
         requireAdmin,
       });
     }
