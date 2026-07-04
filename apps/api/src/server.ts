@@ -7,6 +7,7 @@ import { buildApp } from './app.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
 import { readApiEnvironment } from './config/environment.js';
 import { createDatabaseConnection } from './db/client.js';
+import { createOrderService } from './order/create-order-service.js';
 import { createPublicContextRepository } from './public-context/public-context-repository.js';
 
 if (process.env.NODE_ENV !== 'production') {
@@ -40,6 +41,7 @@ const app = buildApp(
     },
   },
   {
+    createOrderService: createOrderService(database.pool),
     publicContextRepository: createPublicContextRepository(database.db),
   },
 );

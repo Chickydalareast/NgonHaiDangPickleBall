@@ -14,7 +14,8 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:verify": "tsx src/db/verify.ts",
     "db:verify:empty": "tsx src/db/verify-empty.ts",
-    "public:verify:db": "tsx src/public-context/verify.ts"
+    "public:verify:db": "tsx src/public-context/verify.ts",
+    "order:verify:db": "tsx src/order/verify.ts"
   },
   "dependencies": {
     "@nhdp/contracts": "workspace:*",

@@ -5,6 +5,17 @@ export type IdempotencyKey = string;
 export type MoneyVnd = number;
 
 export {
+  createOrderApiErrorSchema,
+  createOrderLineRequestSchema,
+  createOrderRequestSchema,
+  createOrderResponseSchema,
+  type CreateOrderApiError,
+  type CreateOrderLineRequest,
+  type CreateOrderRequest,
+  type CreateOrderResponse,
+} from './public-order.js';
+
+export {
   publicApiErrorSchema,
   publicCatalogCategorySchema,
   publicCatalogImageSchema,

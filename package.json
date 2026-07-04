@@ -43,16 +43,20 @@
     "db:seed:docker": "docker compose --profile tools run --rm seed",
     "contracts:build": "pnpm --filter @nhdp/contracts build",
     "public:verify:db": "tsx apps/api/src/public-context/verify.ts",
-    "public:verify": "tsx scripts/verify-public-context.ts"
+    "public:verify": "tsx scripts/verify-public-context.ts",
+    "order:verify:db": "tsx apps/api/src/order/verify.ts",
+    "order:verify": "tsx scripts/verify-create-order.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^24.13.2",
+    "@types/pg": "8.15.6",
     "dotenv": "^17.4.2",
     "eslint": "^10.6.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^16.5.0",
+    "pg": "8.22.0",
     "prettier": "^3.9.4",
     "tsx": "^4.22.5",
     "typescript": "^6.0.3",

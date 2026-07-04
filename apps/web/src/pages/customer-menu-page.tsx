@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 
+import { useCart } from '../cart/cart-context';
 import { fetchPublicServicePointContext, PublicApiRequestError } from '../lib/public-context-api';
 
 const priceFormatter = new Intl.NumberFormat('vi-VN', {
@@ -60,7 +61,7 @@ function MenuError({ error, retry }: MenuErrorProps) {
 
 export function CustomerMenuPage() {
   const { slug = '' } = useParams();
-
+  const cart = useCart(slug);
   const contextQuery = useQuery({
     queryKey: ['public-service-point-context', slug],
     queryFn: ({ signal }) => fetchPublicServicePointContext(slug, signal),
@@ -101,7 +102,7 @@ export function CustomerMenuPage() {
   );
 
   return (
-    <main className="min-h-screen bg-surface pb-16 text-ink">
+    <main className="min-h-screen bg-surface pb-32 text-ink">
       <header className="border-b border-line bg-white">
         <div className="mx-auto max-w-3xl px-4 py-5 sm:px-6">
           <div className="flex items-center gap-3">
@@ -123,7 +124,8 @@ export function CustomerMenuPage() {
           </div>
 
           <div className="mt-5 rounded-2xl bg-neutral-soft px-4 py-3 text-sm leading-6 text-muted">
-            Xem menu đang bán tại sân. Tính năng thêm món và gửi order sẽ được mở ở bước tiếp theo.
+            Chọn món và gửi order ngay tại sân. Giá chính thức luôn được máy chủ đọc lại từ menu
+            trước khi tạo order.
           </div>
         </div>
       </header>
@@ -197,6 +199,21 @@ export function CustomerMenuPage() {
                             {item.description}
                           </p>
                         )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            cart.addItem(slug, {
+                              catalogItemId: item.id,
+                              name: item.name,
+                              unitName: item.unitName,
+                              priceVnd: item.priceVnd,
+                            });
+                          }}
+                          className="mt-3 rounded-xl border border-brand px-4 py-2 text-sm font-black text-brand transition hover:bg-brand hover:text-white"
+                        >
+                          Thêm vào giỏ
+                        </button>
                       </div>
                     </article>
                   ))}
@@ -207,9 +224,28 @@ export function CustomerMenuPage() {
         </div>
 
         <footer className="mt-12 border-t border-line pt-6 text-center text-xs leading-5 text-muted">
-          Dữ liệu menu được tải trực tiếp từ PostgreSQL qua Fastify API.
+          Giá trên giỏ là tạm tính. Máy chủ xác nhận lại giá khi tạo order.
         </footer>
       </div>
+
+      {cart.itemCount > 0 && (
+        <div className="safe-bottom fixed inset-x-0 bottom-0 z-20 border-t border-line bg-white/95 px-4 py-3 backdrop-blur">
+          <div className="mx-auto flex max-w-3xl items-center gap-4">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">{cart.itemCount} món trong giỏ</p>
+              <p className="truncate text-xs text-muted">
+                Tạm tính {priceFormatter.format(cart.provisionalTotalVnd)}
+              </p>
+            </div>
+            <Link
+              to={`/s/${slug}/cart`}
+              className="rounded-xl bg-brand px-5 py-3 font-black text-white transition hover:bg-brand-dark"
+            >
+              Xem giỏ
+            </Link>
+          </div>
+        </div>
+      )}
     </main>
   );
 }

@@ -1,6 +1,10 @@
+﻿import type { Server as HttpServer } from 'node:http';
+
 import type { PublicServicePointContext } from '@nhdp/contracts';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
+import { registerCreateOrderRoutes } from './order/create-order-routes.js';
+import type { CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
 import { registerPublicContextRoutes } from './public-context/public-context-routes.js';
 
@@ -16,14 +20,28 @@ export interface HealthResponse {
 }
 
 export interface AppDependencies {
+  createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
 }
 
+type AppServerOptions = Omit<FastifyServerOptions<HttpServer>, 'ajv'>;
+
 export function buildApp(
-  options: FastifyServerOptions = {},
+  options: AppServerOptions = {},
   dependencies: AppDependencies = {},
 ): FastifyInstance {
-  const app = Fastify(options);
+  const fastifyOptions: FastifyServerOptions<HttpServer> = {
+    ...options,
+    ajv: {
+      customOptions: {
+        // Không âm thầm xóa field lạ khỏi request tài chính.
+        // additionalProperties: false phải trả validation error.
+        removeAdditional: false,
+      },
+    },
+  };
+
+  const app = Fastify<HttpServer>(fastifyOptions);
 
   app.get('/health', () => {
     const response: HealthResponse = {
@@ -40,6 +58,12 @@ export function buildApp(
   if (dependencies.publicContextRepository) {
     registerPublicContextRoutes(app, {
       repository: dependencies.publicContextRepository,
+    });
+  }
+
+  if (dependencies.createOrderService) {
+    registerCreateOrderRoutes(app, {
+      service: dependencies.createOrderService,
     });
   }
 

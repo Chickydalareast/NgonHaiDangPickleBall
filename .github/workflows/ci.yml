@@ -35,7 +35,7 @@ jobs:
   database:
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 18
     env:
       DATABASE_URL: postgresql://nhdp:nhdp_ci_password@localhost:5432/nhdp
       DATABASE_POOL_MAX: 5
@@ -83,3 +83,4 @@ jobs:
           pnpm db:verify
           pnpm db:verify:empty
           pnpm public:verify:db
+          pnpm order:verify:db

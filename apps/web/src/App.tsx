@@ -1,6 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router';
 
+import { CartProvider } from './cart/cart-context';
+import { CustomerCartPage } from './pages/customer-cart-page';
 import { CustomerMenuPage } from './pages/customer-menu-page';
+import { OrderSuccessPage } from './pages/order-success-page';
 
 function NotFoundPage() {
   return (
@@ -21,10 +24,14 @@ function NotFoundPage() {
 
 export function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/s/san-01" replace />} />
-      <Route path="/s/:slug" element={<CustomerMenuPage />} />
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+    <CartProvider>
+      <Routes>
+        <Route path="/" element={<Navigate to="/s/san-01" replace />} />
+        <Route path="/s/:slug" element={<CustomerMenuPage />} />
+        <Route path="/s/:slug/cart" element={<CustomerCartPage />} />
+        <Route path="/s/:slug/order-success" element={<OrderSuccessPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </CartProvider>
   );
 }
