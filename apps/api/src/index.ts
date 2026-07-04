@@ -1,1 +1,2 @@
-export const API_PACKAGE_NAME = '@nhdp/api' as const;
+export { buildApp, type HealthResponse } from './app.js';
+export { readApiEnvironment, type ApiEnvironment } from './config/environment.js';

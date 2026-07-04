@@ -11,6 +11,11 @@ const environmentSchema = z
     NODE_ENV: z.enum(['development', 'test', 'production']),
     API_HOST: z.string().min(1),
     API_PORT: z.coerce.number().int().min(1).max(65_535),
+    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']),
+    POSTGRES_DB: z.string().min(1),
+    POSTGRES_USER: z.string().min(1),
+    POSTGRES_PASSWORD: z.string().min(12),
+    POSTGRES_PORT: z.coerce.number().int().min(1).max(65_535),
     DATABASE_URL: z
       .url()
       .refine(
@@ -19,6 +24,7 @@ const environmentSchema = z
       ),
     SESSION_SECRET: z.string().min(32),
     WEB_ORIGIN: z.url(),
+    CADDY_HTTP_PORT: z.coerce.number().int().min(1).max(65_535),
   })
   .strict();
 
