@@ -5,6 +5,8 @@ import fastifyCookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 import { createRequireAdmin } from './admin/admin-auth-guard.js';
+import { registerAdminCatalogRoutes } from './catalog/admin-catalog-routes.js';
+import type { AdminCatalogService } from './catalog/admin-catalog-service.js';
 import { registerAdminBillCompletionRoutes } from './admin/admin-bill-completion-routes.js';
 import type { AdminBillCompletionService } from './admin/admin-bill-completion-service.js';
 import { registerAdminAuthRoutes } from './admin/admin-auth-routes.js';
@@ -37,6 +39,7 @@ export interface HealthResponse {
 
 export interface AppDependencies {
   adminAuthService?: AdminAuthService;
+  adminCatalogService?: AdminCatalogService;
   adminBillCompletionService?: AdminBillCompletionService;
   adminCookieSecure?: boolean;
   adminDashboardRepository?: AdminDashboardRepository;
@@ -99,6 +102,7 @@ export function buildApp(
 
   if (
     (dependencies.adminBillCompletionService ||
+      dependencies.adminCatalogService ||
       dependencies.adminDashboardRepository ||
       dependencies.adminOrderOperationsService ||
       dependencies.adminRealtimeHub ||
@@ -124,6 +128,13 @@ export function buildApp(
     if (dependencies.adminBillCompletionService) {
       registerAdminBillCompletionRoutes(app, {
         service: dependencies.adminBillCompletionService,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminCatalogService) {
+      registerAdminCatalogRoutes(app, {
+        service: dependencies.adminCatalogService,
         requireAdmin,
       });
     }

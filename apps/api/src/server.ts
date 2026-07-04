@@ -9,7 +9,10 @@ import { createAdminDashboardRepository } from './admin/admin-dashboard-reposito
 import { createAdminOrderOperationsService } from './admin/admin-order-operations-service.js';
 import { createAdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { createAdminServiceRequestService } from './admin/admin-service-request-service.js';
+import { createAdminCatalogService } from './catalog/admin-catalog-service.js';
+import { createCatalogMediaService } from './catalog/cloudinary-catalog-media.js';
 import { buildApp } from './app.js';
+import { readCloudinaryEnvironment } from './config/cloudinary-environment.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
 import { readApiEnvironment } from './config/environment.js';
 import { createDatabaseConnection } from './db/client.js';
@@ -36,12 +39,14 @@ if (process.env.NODE_ENV !== 'production') {
 
 const apiEnvironment = readApiEnvironment();
 const databaseEnvironment = readDatabaseEnvironment();
+const cloudinaryEnvironment = readCloudinaryEnvironment();
 const database = createDatabaseConnection(databaseEnvironment.DATABASE_URL, {
   applicationName: 'nhdp-api',
   maxConnections: databaseEnvironment.DATABASE_POOL_MAX,
 });
 const adminAuthService = createAdminAuthService(database.pool, apiEnvironment.SESSION_SECRET);
 const adminRealtimeHub = createAdminRealtimeHub();
+const catalogMediaService = createCatalogMediaService(cloudinaryEnvironment);
 
 const app = buildApp(
   {
@@ -51,6 +56,7 @@ const app = buildApp(
   },
   {
     adminAuthService,
+    adminCatalogService: createAdminCatalogService(database.pool, catalogMediaService),
     adminBillCompletionService: createAdminBillCompletionService(database.pool, adminRealtimeHub),
     adminCookieSecure: new URL(apiEnvironment.WEB_ORIGIN).protocol === 'https:',
     adminDashboardRepository: createAdminDashboardRepository(database.pool),
@@ -58,7 +64,10 @@ const app = buildApp(
     adminRealtimeHub,
     adminServiceRequestService: createAdminServiceRequestService(database.pool, adminRealtimeHub),
     createOrderService: createOrderService(database.pool, adminRealtimeHub),
-    publicContextRepository: createPublicContextRepository(database.db),
+    publicContextRepository: createPublicContextRepository(
+      database.db,
+      catalogMediaService.configuration.cloudName,
+    ),
     publicServiceRequestService: createPublicServiceRequestService(database.pool, adminRealtimeHub),
   },
 );

@@ -90,3 +90,4 @@ jobs:
           pnpm operations:verify:db
           pnpm bills:verify:db
           pnpm staff:verify:db
+          pnpm catalog:verify:db

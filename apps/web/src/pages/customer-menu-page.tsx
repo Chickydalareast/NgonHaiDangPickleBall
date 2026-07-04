@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 
 import { useCart } from '../cart/cart-context';
+import { buildCloudinaryImageUrl } from '../lib/cloudinary-image';
 import { CustomerCallStaff } from './customer-call-staff';
 import { fetchPublicServicePointContext, PublicApiRequestError } from '../lib/public-context-api';
 
@@ -175,51 +176,67 @@ export function CustomerMenuPage() {
                 </div>
               ) : (
                 <div className="grid gap-3">
-                  {category.items.map((item) => (
-                    <article
-                      key={item.id}
-                      className="flex gap-4 rounded-2xl border border-line bg-white p-4 shadow-[0_8px_30px_rgb(31_33_30/4%)]"
-                    >
-                      <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-neutral-soft text-2xl font-black text-brand">
-                        {item.name.slice(0, 1).toUpperCase()}
-                      </div>
+                  {category.items.map((item) => {
+                    const imageUrl = buildCloudinaryImageUrl(
+                      context.media.cloudName,
+                      item.image,
+                      'f_auto,q_auto,c_fill,w_240,h_240',
+                    );
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h4 className="font-extrabold leading-6">{item.name}</h4>
-                            <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted">
-                              {item.unitName}
-                            </p>
-                          </div>
-                          <span className="shrink-0 font-black text-brand">
-                            {priceFormatter.format(item.priceVnd)}
-                          </span>
+                    return (
+                      <article
+                        key={item.id}
+                        className="flex gap-4 rounded-2xl border border-line bg-white p-4 shadow-[0_8px_30px_rgb(31_33_30/4%)]"
+                      >
+                        <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-2xl bg-neutral-soft text-2xl font-black text-brand">
+                          {imageUrl ? (
+                            <img
+                              src={imageUrl}
+                              alt={item.image?.alt ?? item.name}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            item.name.slice(0, 1).toUpperCase()
+                          )}
                         </div>
 
-                        {item.description && (
-                          <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">
-                            {item.description}
-                          </p>
-                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <h4 className="font-extrabold leading-6">{item.name}</h4>
+                              <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-muted">
+                                {item.unitName}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-black text-brand">
+                              {priceFormatter.format(item.priceVnd)}
+                            </span>
+                          </div>
 
-                        <button
-                          type="button"
-                          onClick={() => {
-                            cart.addItem(slug, {
-                              catalogItemId: item.id,
-                              name: item.name,
-                              unitName: item.unitName,
-                              priceVnd: item.priceVnd,
-                            });
-                          }}
-                          className="mt-3 rounded-xl border border-brand px-4 py-2 text-sm font-black text-brand transition hover:bg-brand hover:text-white"
-                        >
-                          Thêm vào giỏ
-                        </button>
-                      </div>
-                    </article>
-                  ))}
+                          {item.description && (
+                            <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted">
+                              {item.description}
+                            </p>
+                          )}
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              cart.addItem(slug, {
+                                catalogItemId: item.id,
+                                name: item.name,
+                                unitName: item.unitName,
+                                priceVnd: item.priceVnd,
+                              });
+                            }}
+                            className="mt-3 rounded-xl border border-brand px-4 py-2 text-sm font-black text-brand transition hover:bg-brand hover:text-white"
+                          >
+                            Thêm vào giỏ
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
                 </div>
               )}
             </section>

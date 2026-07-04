@@ -28,8 +28,25 @@ const environmentSchema = z
     SESSION_SECRET: z.string().min(32),
     WEB_ORIGIN: z.url(),
     CADDY_HTTP_PORT: z.coerce.number().int().min(1).max(65_535),
+    CLOUDINARY_CLOUD_NAME: z.string().optional(),
+    CLOUDINARY_API_KEY: z.string().optional(),
+    CLOUDINARY_API_SECRET: z.string().optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const configured = [
+      value.CLOUDINARY_CLOUD_NAME,
+      value.CLOUDINARY_API_KEY,
+      value.CLOUDINARY_API_SECRET,
+    ].filter((item) => typeof item === 'string' && item.trim().length > 0);
+
+    if (configured.length !== 0 && configured.length !== 3) {
+      context.addIssue({
+        code: 'custom',
+        message: 'Cloudinary credentials must be configured together.',
+      });
+    }
+  });
 
 const result = environmentSchema.safeParse(rawEnvironment);
 

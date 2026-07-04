@@ -5,6 +5,31 @@ export type IdempotencyKey = string;
 export type MoneyVnd = number;
 
 export {
+  adminCatalogApiErrorSchema,
+  adminCatalogCategorySchema,
+  adminCatalogImageSchema,
+  adminCatalogImageUploadSignatureResponseSchema,
+  adminCatalogItemSchema,
+  adminCatalogResponseSchema,
+  attachAdminCatalogItemImageRequestSchema,
+  createAdminCatalogCategoryRequestSchema,
+  createAdminCatalogItemRequestSchema,
+  updateAdminCatalogCategoryRequestSchema,
+  updateAdminCatalogItemRequestSchema,
+  type AdminCatalogApiError,
+  type AdminCatalogCategory,
+  type AdminCatalogImage,
+  type AdminCatalogImageUploadSignatureResponse,
+  type AdminCatalogItem,
+  type AdminCatalogResponse,
+  type AttachAdminCatalogItemImageRequest,
+  type CreateAdminCatalogCategoryRequest,
+  type CreateAdminCatalogItemRequest,
+  type UpdateAdminCatalogCategoryRequest,
+  type UpdateAdminCatalogItemRequest,
+} from './admin-catalog.js';
+
+export {
   adminIdentitySchema,
   adminUsernameSchema,
   authApiErrorSchema,

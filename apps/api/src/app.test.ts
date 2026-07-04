@@ -28,6 +28,7 @@ const publicContextFixture: PublicServicePointContext = publicServicePointContex
     slug: 'san-01',
     name: 'Sân 01',
   },
+  media: { cloudName: null },
   categories: [
     {
       id: '019f2bbb-797d-777f-947e-848374706130',

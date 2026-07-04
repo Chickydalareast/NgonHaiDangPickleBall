@@ -12,7 +12,10 @@ export interface PublicContextRepository {
   findByServicePointSlug(slug: string): Promise<PublicServicePointContext | null>;
 }
 
-export function createPublicContextRepository(db: Database): PublicContextRepository {
+export function createPublicContextRepository(
+  db: Database,
+  cloudinaryCloudName: string | null = null,
+): PublicContextRepository {
   return {
     async findByServicePointSlug(slug: string): Promise<PublicServicePointContext | null> {
       return db.transaction(async (transaction) => {
@@ -130,6 +133,7 @@ export function createPublicContextRepository(db: Database): PublicContextReposi
             slug: contextRow.servicePointSlug,
             name: contextRow.servicePointName,
           },
+          media: { cloudName: cloudinaryCloudName },
           categories: categoryRows.map((category) => ({
             ...category,
             items: itemsByCategory.get(category.id) ?? [],

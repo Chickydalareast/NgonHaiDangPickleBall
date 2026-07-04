@@ -129,14 +129,22 @@ export function AdminDashboardPage() {
                 ? 'Realtime đang kết nối'
                 : 'Polling dự phòng mỗi 15 giây'}
             </p>
-            <button
-              type="button"
-              disabled={logoutMutation.isPending}
-              onClick={() => logoutMutation.mutate()}
-              className="rounded-xl border border-line px-4 py-3 font-bold transition hover:border-brand hover:text-brand disabled:opacity-60"
-            >
-              {logoutMutation.isPending ? 'Đang đăng xuất…' : 'Đăng xuất'}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                to="/admin/catalog"
+                className="rounded-xl border border-brand px-4 py-3 font-black text-brand"
+              >
+                Quản lý catalog
+              </Link>
+              <button
+                type="button"
+                disabled={logoutMutation.isPending}
+                onClick={() => logoutMutation.mutate()}
+                className="rounded-xl border border-line px-4 py-3 font-bold transition hover:border-brand hover:text-brand disabled:opacity-60"
+              >
+                {logoutMutation.isPending ? 'Đang đăng xuất…' : 'Đăng xuất'}
+              </button>
+            </div>
           </div>
         </header>
 

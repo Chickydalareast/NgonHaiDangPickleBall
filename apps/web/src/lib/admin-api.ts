@@ -1,4 +1,10 @@
 import {
+  adminCatalogApiErrorSchema,
+  adminCatalogImageUploadSignatureResponseSchema,
+  adminCatalogResponseSchema,
+  attachAdminCatalogItemImageRequestSchema,
+  createAdminCatalogCategoryRequestSchema,
+  createAdminCatalogItemRequestSchema,
   addAdminBillItemRequestSchema,
   adminBillCompletionApiErrorSchema,
   adminBillDetailResponseSchema,
@@ -11,17 +17,26 @@ import {
   logoutResponseSchema,
   resolveAdminServiceRequestResponseSchema,
   serviceRequestApiErrorSchema,
+  updateAdminCatalogCategoryRequestSchema,
+  updateAdminCatalogItemRequestSchema,
   updateAdminOrderLineRequestSchema,
   updateAdminOrderStatusRequestSchema,
   voidAdminOrderLineRequestSchema,
   type AddAdminBillItemRequest,
+  type AdminCatalogImageUploadSignatureResponse,
+  type AdminCatalogResponse,
+  type AttachAdminCatalogItemImageRequest,
   type CompleteAdminBillResponse,
+  type CreateAdminCatalogCategoryRequest,
+  type CreateAdminCatalogItemRequest,
   type AdminBillDetailResponse,
   type AdminDashboardResponse,
   type AuthSessionResponse,
   type LoginRequest,
   type LogoutResponse,
   type ResolveAdminServiceRequestResponse,
+  type UpdateAdminCatalogCategoryRequest,
+  type UpdateAdminCatalogItemRequest,
   type UpdateAdminOrderLineRequest,
   type UpdateAdminOrderStatusRequest,
   type VoidAdminOrderLineRequest,
@@ -99,6 +114,12 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
         serviceRequestError.data.code,
         serviceRequestError.data.message,
       );
+    }
+
+    const catalogError = adminCatalogApiErrorSchema.safeParse(body);
+
+    if (catalogError.success) {
+      throw new AdminApiError(response.status, catalogError.data.code, catalogError.data.message);
     }
 
     throw new AdminApiError(
@@ -210,6 +231,85 @@ export async function resolveAdminServiceRequest(
   return resolveAdminServiceRequestResponseSchema.parse(
     await request(`/api/admin/service-requests/${encodeURIComponent(requestId)}/resolve`, {
       method: 'PATCH',
+    }),
+  );
+}
+
+export async function getAdminCatalog(): Promise<AdminCatalogResponse> {
+  return adminCatalogResponseSchema.parse(await request('/api/admin/catalog'));
+}
+
+export async function createAdminCatalogCategory(
+  values: CreateAdminCatalogCategoryRequest,
+): Promise<AdminCatalogResponse> {
+  const payload = createAdminCatalogCategoryRequestSchema.parse(values);
+  return adminCatalogResponseSchema.parse(
+    await request('/api/admin/catalog/categories', jsonRequest('POST', payload)),
+  );
+}
+
+export async function updateAdminCatalogCategory(
+  categoryId: string,
+  values: UpdateAdminCatalogCategoryRequest,
+): Promise<AdminCatalogResponse> {
+  const payload = updateAdminCatalogCategoryRequestSchema.parse(values);
+  return adminCatalogResponseSchema.parse(
+    await request(
+      `/api/admin/catalog/categories/${encodeURIComponent(categoryId)}`,
+      jsonRequest('PATCH', payload),
+    ),
+  );
+}
+
+export async function createAdminCatalogItem(
+  values: CreateAdminCatalogItemRequest,
+): Promise<AdminCatalogResponse> {
+  const payload = createAdminCatalogItemRequestSchema.parse(values);
+  return adminCatalogResponseSchema.parse(
+    await request('/api/admin/catalog/items', jsonRequest('POST', payload)),
+  );
+}
+
+export async function updateAdminCatalogItem(
+  itemId: string,
+  values: UpdateAdminCatalogItemRequest,
+): Promise<AdminCatalogResponse> {
+  const payload = updateAdminCatalogItemRequestSchema.parse(values);
+  return adminCatalogResponseSchema.parse(
+    await request(
+      `/api/admin/catalog/items/${encodeURIComponent(itemId)}`,
+      jsonRequest('PATCH', payload),
+    ),
+  );
+}
+
+export async function createAdminCatalogImageSignature(
+  itemId: string,
+): Promise<AdminCatalogImageUploadSignatureResponse> {
+  return adminCatalogImageUploadSignatureResponseSchema.parse(
+    await request(`/api/admin/catalog/items/${encodeURIComponent(itemId)}/image-signature`, {
+      method: 'POST',
+    }),
+  );
+}
+
+export async function attachAdminCatalogItemImage(
+  itemId: string,
+  values: AttachAdminCatalogItemImageRequest,
+): Promise<AdminCatalogResponse> {
+  const payload = attachAdminCatalogItemImageRequestSchema.parse(values);
+  return adminCatalogResponseSchema.parse(
+    await request(
+      `/api/admin/catalog/items/${encodeURIComponent(itemId)}/image`,
+      jsonRequest('PUT', payload),
+    ),
+  );
+}
+
+export async function removeAdminCatalogItemImage(itemId: string): Promise<AdminCatalogResponse> {
+  return adminCatalogResponseSchema.parse(
+    await request(`/api/admin/catalog/items/${encodeURIComponent(itemId)}/image`, {
+      method: 'DELETE',
     }),
   );
 }

@@ -55,7 +55,9 @@
     "bills:verify:db": "tsx apps/api/src/admin/bill-completion-verify.ts",
     "bills:verify": "tsx scripts/verify-admin-bill-completion.ts",
     "staff:verify:db": "tsx apps/api/src/service-request/service-request-verify.ts",
-    "staff:verify": "tsx scripts/verify-call-staff.ts"
+    "staff:verify": "tsx scripts/verify-call-staff.ts",
+    "catalog:verify:db": "tsx apps/api/src/catalog/catalog-verify.ts",
+    "catalog:verify": "tsx scripts/verify-admin-catalog.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

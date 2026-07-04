@@ -62,6 +62,11 @@ export const publicServicePointContextSchema = z
         name: z.string().min(1).max(120),
       })
       .strict(),
+    media: z
+      .object({
+        cloudName: z.string().min(1).nullable(),
+      })
+      .strict(),
     categories: z.array(publicCatalogCategorySchema),
     generatedAt: z.string().datetime(),
   })

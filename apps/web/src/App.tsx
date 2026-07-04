@@ -4,6 +4,7 @@ import { CartProvider } from './cart/cart-context';
 import { CustomerCartPage } from './pages/customer-cart-page';
 import { CustomerMenuPage } from './pages/customer-menu-page';
 import { AdminBillPage } from './pages/admin-bill-page';
+import { AdminCatalogPage } from './pages/admin-catalog-page';
 import { AdminDashboardPage } from './pages/admin-dashboard-page';
 import { AdminLoginPage } from './pages/admin-login-page';
 import { OrderSuccessPage } from './pages/order-success-page';
@@ -36,6 +37,7 @@ export function App() {
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route path="/admin" element={<AdminDashboardPage />} />
         <Route path="/admin/bills/:billId" element={<AdminBillPage />} />
+        <Route path="/admin/catalog" element={<AdminCatalogPage />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </CartProvider>

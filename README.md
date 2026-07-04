@@ -156,3 +156,20 @@ Customer có thể gửi một yêu cầu hỗ trợ tại sân với ghi chú t
 pnpm staff:verify:db
 pnpm staff:verify
 ```
+
+## Step 10 — Catalog and Cloudinary
+
+Admin can manage categories, items, prices, display order and selling availability at `/admin/catalog`. V1 treats item quantity as unlimited and does not implement inventory. Images use server-signed direct browser uploads to Cloudinary with immutable public IDs so historical order snapshots remain stable.
+
+```bash
+pnpm catalog:verify:db
+pnpm catalog:verify
+```
+
+Cloudinary is optional locally. Configure all three values together to enable image uploads:
+
+```text
+CLOUDINARY_CLOUD_NAME
+CLOUDINARY_API_KEY
+CLOUDINARY_API_SECRET
+```
