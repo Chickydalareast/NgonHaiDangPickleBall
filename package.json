@@ -18,8 +18,8 @@
     "format:check": "prettier --check .",
     "env:check": "tsx scripts/check-env.ts",
     "toolchain:check": "node scripts/assert-toolchain.mjs",
-    "check": "pnpm toolchain:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm env:check && pnpm compose:check",
-    "dev": "pnpm --parallel --filter @nhdp/api --filter @nhdp/web run dev",
+    "check": "pnpm toolchain:check && pnpm format:check && pnpm contracts:build && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm env:check && pnpm compose:check",
+    "dev": "pnpm contracts:build && pnpm --parallel --filter @nhdp/api --filter @nhdp/web run dev",
     "dev:api": "pnpm --filter @nhdp/api dev",
     "dev:web": "pnpm --filter @nhdp/web dev",
     "test": "pnpm -r --if-present test",
@@ -40,7 +40,10 @@
     "db:bootstrap": "pnpm db:migrate && pnpm db:seed && pnpm db:verify",
     "db:verify:all": "pnpm db:verify && pnpm db:verify:empty",
     "db:migrate:docker": "docker compose --profile tools run --rm migrate",
-    "db:seed:docker": "docker compose --profile tools run --rm seed"
+    "db:seed:docker": "docker compose --profile tools run --rm seed",
+    "contracts:build": "pnpm --filter @nhdp/contracts build",
+    "public:verify:db": "tsx apps/api/src/public-context/verify.ts",
+    "public:verify": "tsx scripts/verify-public-context.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

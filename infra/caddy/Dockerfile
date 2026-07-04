@@ -15,9 +15,11 @@ COPY packages/contracts/package.json packages/contracts/package.json
 RUN pnpm install --frozen-lockfile --filter @nhdp/web...
 
 COPY tsconfig.base.json ./
+COPY packages/contracts packages/contracts
 COPY apps/web apps/web
 
-RUN pnpm --filter @nhdp/web build
+RUN pnpm --filter @nhdp/contracts build \
+    && pnpm --filter @nhdp/web build
 
 FROM caddy:2.11.4-alpine
 

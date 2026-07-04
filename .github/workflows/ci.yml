@@ -82,3 +82,4 @@ jobs:
           pnpm db:seed
           pnpm db:verify
           pnpm db:verify:empty
+          pnpm public:verify:db

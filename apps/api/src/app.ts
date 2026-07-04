@@ -1,4 +1,8 @@
+import type { PublicServicePointContext } from '@nhdp/contracts';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
+
+import type { PublicContextRepository } from './public-context/public-context-repository.js';
+import { registerPublicContextRoutes } from './public-context/public-context-routes.js';
 
 const SERVICE_NAME = '@nhdp/api';
 const SERVICE_VERSION = '0.0.0';
@@ -11,7 +15,14 @@ export interface HealthResponse {
   timestamp: string;
 }
 
-export function buildApp(options: FastifyServerOptions = {}): FastifyInstance {
+export interface AppDependencies {
+  publicContextRepository?: PublicContextRepository;
+}
+
+export function buildApp(
+  options: FastifyServerOptions = {},
+  dependencies: AppDependencies = {},
+): FastifyInstance {
   const app = Fastify(options);
 
   app.get('/health', () => {
@@ -26,5 +37,13 @@ export function buildApp(options: FastifyServerOptions = {}): FastifyInstance {
     return response;
   });
 
+  if (dependencies.publicContextRepository) {
+    registerPublicContextRoutes(app, {
+      repository: dependencies.publicContextRepository,
+    });
+  }
+
   return app;
 }
+
+export type { PublicServicePointContext };

@@ -17,9 +17,11 @@ FROM base AS build
 RUN pnpm install --frozen-lockfile --filter @nhdp/api...
 
 COPY tsconfig.base.json ./
+COPY packages/contracts packages/contracts
 COPY apps/api apps/api
 
-RUN pnpm --filter @nhdp/api build
+RUN pnpm --filter @nhdp/contracts build \
+    && pnpm --filter @nhdp/api build
 
 FROM base AS production-dependencies
 
@@ -33,7 +35,10 @@ WORKDIR /app
 
 COPY --from=production-dependencies /workspace/node_modules ./node_modules
 COPY --from=production-dependencies /workspace/apps/api/node_modules ./apps/api/node_modules
+COPY --from=production-dependencies /workspace/packages/contracts/node_modules ./packages/contracts/node_modules
 COPY --from=production-dependencies /workspace/apps/api/package.json ./apps/api/package.json
+COPY --from=build /workspace/packages/contracts/package.json ./packages/contracts/package.json
+COPY --from=build /workspace/packages/contracts/dist ./packages/contracts/dist
 COPY --from=build /workspace/apps/api/dist ./apps/api/dist
 COPY --from=build /workspace/apps/api/drizzle ./apps/api/drizzle
 

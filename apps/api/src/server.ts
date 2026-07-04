@@ -4,7 +4,10 @@ import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 
 import { buildApp } from './app.js';
+import { readDatabaseEnvironment } from './config/database-environment.js';
 import { readApiEnvironment } from './config/environment.js';
+import { createDatabaseConnection } from './db/client.js';
+import { createPublicContextRepository } from './public-context/public-context-repository.js';
 
 if (process.env.NODE_ENV !== 'production') {
   const environmentCandidates = [
@@ -18,16 +21,31 @@ if (process.env.NODE_ENV !== 'production') {
     loadDotenv({
       path: localEnvironmentPath,
       override: false,
+      quiet: true,
     });
   }
 }
 
-const environment = readApiEnvironment();
+const apiEnvironment = readApiEnvironment();
+const databaseEnvironment = readDatabaseEnvironment();
+const database = createDatabaseConnection(databaseEnvironment.DATABASE_URL, {
+  applicationName: 'nhdp-api',
+  maxConnections: databaseEnvironment.DATABASE_POOL_MAX,
+});
 
-const app = buildApp({
-  logger: {
-    level: environment.LOG_LEVEL,
+const app = buildApp(
+  {
+    logger: {
+      level: apiEnvironment.LOG_LEVEL,
+    },
   },
+  {
+    publicContextRepository: createPublicContextRepository(database.db),
+  },
+);
+
+app.addHook('onClose', async () => {
+  await database.pool.end();
 });
 
 let shutdownStarted = false;
@@ -59,8 +77,8 @@ process.once('SIGTERM', () => {
 
 try {
   await app.listen({
-    host: environment.API_HOST,
-    port: environment.API_PORT,
+    host: apiEnvironment.API_HOST,
+    port: apiEnvironment.API_PORT,
   });
 } catch (error) {
   app.log.error({ error }, 'API failed to start');

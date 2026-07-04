@@ -13,9 +13,11 @@
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
     "db:verify": "tsx src/db/verify.ts",
-    "db:verify:empty": "tsx src/db/verify-empty.ts"
+    "db:verify:empty": "tsx src/db/verify-empty.ts",
+    "public:verify:db": "tsx src/public-context/verify.ts"
   },
   "dependencies": {
+    "@nhdp/contracts": "workspace:*",
     "@node-rs/argon2": "2.0.2",
     "dotenv": "^17.4.2",
     "drizzle-orm": "0.45.2",
