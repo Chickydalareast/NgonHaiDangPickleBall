@@ -8,12 +8,14 @@ import { createAdminBillCompletionService } from './admin/admin-bill-completion-
 import { createAdminDashboardRepository } from './admin/admin-dashboard-repository.js';
 import { createAdminOrderOperationsService } from './admin/admin-order-operations-service.js';
 import { createAdminRealtimeHub } from './admin/admin-realtime-hub.js';
+import { createAdminServiceRequestService } from './admin/admin-service-request-service.js';
 import { buildApp } from './app.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
 import { readApiEnvironment } from './config/environment.js';
 import { createDatabaseConnection } from './db/client.js';
 import { createOrderService } from './order/create-order-service.js';
 import { createPublicContextRepository } from './public-context/public-context-repository.js';
+import { createPublicServiceRequestService } from './service-request/public-service-request-service.js';
 
 if (process.env.NODE_ENV !== 'production') {
   const environmentCandidates = [
@@ -54,8 +56,10 @@ const app = buildApp(
     adminDashboardRepository: createAdminDashboardRepository(database.pool),
     adminOrderOperationsService: createAdminOrderOperationsService(database.pool, adminRealtimeHub),
     adminRealtimeHub,
+    adminServiceRequestService: createAdminServiceRequestService(database.pool, adminRealtimeHub),
     createOrderService: createOrderService(database.pool, adminRealtimeHub),
     publicContextRepository: createPublicContextRepository(database.db),
+    publicServiceRequestService: createPublicServiceRequestService(database.pool, adminRealtimeHub),
   },
 );
 

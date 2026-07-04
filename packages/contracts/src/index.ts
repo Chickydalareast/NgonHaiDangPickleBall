@@ -66,6 +66,8 @@ export {
   adminRealtimeOrderCancelledEventSchema,
   adminRealtimeOrderCreatedEventSchema,
   adminRealtimeOrderServedEventSchema,
+  adminRealtimeServiceRequestCreatedEventSchema,
+  adminRealtimeServiceRequestResolvedEventSchema,
   type AdminRealtimeBillCompletedEvent,
   type AdminRealtimeBillUpdatedEvent,
   type AdminRealtimeEvent,
@@ -73,6 +75,8 @@ export {
   type AdminRealtimeOrderCancelledEvent,
   type AdminRealtimeOrderCreatedEvent,
   type AdminRealtimeOrderServedEvent,
+  type AdminRealtimeServiceRequestCreatedEvent,
+  type AdminRealtimeServiceRequestResolvedEvent,
 } from './admin-realtime.js';
 
 export {
@@ -85,6 +89,22 @@ export {
   type CreateOrderRequest,
   type CreateOrderResponse,
 } from './public-order.js';
+
+export {
+  createPublicServiceRequestRequestSchema,
+  createPublicServiceRequestResponseSchema,
+  pendingServiceRequestSchema,
+  readPendingServiceRequestResponseSchema,
+  resolveAdminServiceRequestResponseSchema,
+  serviceRequestApiErrorSchema,
+  serviceRequestMessageSchema,
+  type CreatePublicServiceRequestRequest,
+  type CreatePublicServiceRequestResponse,
+  type PendingServiceRequest,
+  type ReadPendingServiceRequestResponse,
+  type ResolveAdminServiceRequestResponse,
+  type ServiceRequestApiError,
+} from './service-request.js';
 
 export {
   publicApiErrorSchema,

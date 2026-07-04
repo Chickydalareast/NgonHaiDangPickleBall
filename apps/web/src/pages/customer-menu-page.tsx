@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router';
 
 import { useCart } from '../cart/cart-context';
+import { CustomerCallStaff } from './customer-call-staff';
 import { fetchPublicServicePointContext, PublicApiRequestError } from '../lib/public-context-api';
 
 const priceFormatter = new Intl.NumberFormat('vi-VN', {
@@ -127,6 +128,8 @@ export function CustomerMenuPage() {
             Chọn món và gửi order ngay tại sân. Giá chính thức luôn được máy chủ đọc lại từ menu
             trước khi tạo order.
           </div>
+
+          <CustomerCallStaff slug={slug} />
         </div>
       </header>
 

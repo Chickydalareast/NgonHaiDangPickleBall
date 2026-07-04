@@ -22,6 +22,14 @@ export const adminDashboardServicePointSchema = z
       .nullable(),
     pendingOrderCount: z.number().int().nonnegative(),
     hasPendingServiceRequest: z.boolean(),
+    pendingServiceRequest: z
+      .object({
+        id: identifierSchema,
+        message: z.string().min(1).max(200).nullable(),
+        createdAt: z.string().datetime(),
+      })
+      .strict()
+      .nullable(),
   })
   .strict();
 

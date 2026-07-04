@@ -15,10 +15,14 @@ import type { AdminOrderOperationsService } from './admin/admin-order-operations
 import { registerAdminDashboardRoutes } from './admin/admin-dashboard-routes.js';
 import type { AdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { registerAdminRealtimeRoutes } from './admin/admin-realtime-routes.js';
+import { registerAdminServiceRequestRoutes } from './admin/admin-service-request-routes.js';
+import type { AdminServiceRequestService } from './admin/admin-service-request-service.js';
 import { registerCreateOrderRoutes } from './order/create-order-routes.js';
 import type { CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
 import { registerPublicContextRoutes } from './public-context/public-context-routes.js';
+import { registerPublicServiceRequestRoutes } from './service-request/public-service-request-routes.js';
+import type { PublicServiceRequestService } from './service-request/public-service-request-service.js';
 
 const SERVICE_NAME = '@nhdp/api';
 const SERVICE_VERSION = '0.0.0';
@@ -38,8 +42,10 @@ export interface AppDependencies {
   adminDashboardRepository?: AdminDashboardRepository;
   adminOrderOperationsService?: AdminOrderOperationsService;
   adminRealtimeHub?: AdminRealtimeHub;
+  adminServiceRequestService?: AdminServiceRequestService;
   createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
+  publicServiceRequestService?: PublicServiceRequestService;
 }
 
 type AppServerOptions = Omit<FastifyServerOptions<HttpServer>, 'ajv'>;
@@ -79,6 +85,12 @@ export function buildApp(
     });
   }
 
+  if (dependencies.publicServiceRequestService) {
+    registerPublicServiceRequestRoutes(app, {
+      service: dependencies.publicServiceRequestService,
+    });
+  }
+
   if (dependencies.createOrderService) {
     registerCreateOrderRoutes(app, {
       service: dependencies.createOrderService,
@@ -89,7 +101,8 @@ export function buildApp(
     (dependencies.adminBillCompletionService ||
       dependencies.adminDashboardRepository ||
       dependencies.adminOrderOperationsService ||
-      dependencies.adminRealtimeHub) &&
+      dependencies.adminRealtimeHub ||
+      dependencies.adminServiceRequestService) &&
     !dependencies.adminAuthService
   ) {
     throw new Error('Admin routes require the admin auth service.');
@@ -125,6 +138,13 @@ export function buildApp(
     if (dependencies.adminOrderOperationsService) {
       registerAdminOrderOperationsRoutes(app, {
         service: dependencies.adminOrderOperationsService,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminServiceRequestService) {
+      registerAdminServiceRequestRoutes(app, {
+        service: dependencies.adminServiceRequestService,
         requireAdmin,
       });
     }

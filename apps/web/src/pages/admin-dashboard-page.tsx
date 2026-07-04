@@ -2,7 +2,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 
-import { AdminApiError, getAdminDashboard, getAdminSession, logoutAdmin } from '../lib/admin-api';
+import {
+  AdminApiError,
+  getAdminDashboard,
+  getAdminSession,
+  logoutAdmin,
+  resolveAdminServiceRequest,
+} from '../lib/admin-api';
 import { useAdminRealtime } from '../lib/admin-realtime';
 
 const moneyFormatter = new Intl.NumberFormat('vi-VN', {
@@ -38,6 +44,12 @@ export function AdminDashboardPage() {
     onSettled() {
       queryClient.removeQueries({ queryKey: ['admin'] });
       void navigate('/admin/login', { replace: true });
+    },
+  });
+  const resolveServiceRequestMutation = useMutation({
+    mutationFn: resolveAdminServiceRequest,
+    onSuccess() {
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
     },
   });
 
@@ -128,6 +140,14 @@ export function AdminDashboardPage() {
           </div>
         </header>
 
+        {resolveServiceRequestMutation.isError ? (
+          <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm font-bold text-danger">
+            {resolveServiceRequestMutation.error instanceof Error
+              ? resolveServiceRequestMutation.error.message
+              : 'Không thể xác nhận yêu cầu hỗ trợ.'}
+          </p>
+        ) : null}
+
         <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {servicePoints.map((servicePoint) => {
             const courtState =
@@ -189,10 +209,40 @@ export function AdminDashboardPage() {
                   </Link>
                 ) : null}
 
-                {servicePoint.hasPendingServiceRequest ? (
-                  <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm font-black text-danger">
-                    Sân đang gọi nhân viên
-                  </p>
+                {servicePoint.pendingServiceRequest ? (
+                  <div className="mt-4 rounded-xl border border-danger/20 bg-danger-soft px-4 py-4">
+                    <p className="text-sm font-black text-danger">Sân đang gọi nhân viên</p>
+                    <p className="mt-1 text-xs font-semibold text-muted">
+                      Gửi lúc{' '}
+                      {new Intl.DateTimeFormat('vi-VN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      }).format(new Date(servicePoint.pendingServiceRequest.createdAt))}
+                    </p>
+                    {servicePoint.pendingServiceRequest.message ? (
+                      <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-sm font-semibold text-ink">
+                        {servicePoint.pendingServiceRequest.message}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={
+                        resolveServiceRequestMutation.isPending &&
+                        resolveServiceRequestMutation.variables ===
+                          servicePoint.pendingServiceRequest.id
+                      }
+                      onClick={() =>
+                        resolveServiceRequestMutation.mutate(servicePoint.pendingServiceRequest!.id)
+                      }
+                      className="mt-3 w-full rounded-lg bg-danger px-3 py-2 text-sm font-black text-white disabled:opacity-60"
+                    >
+                      {resolveServiceRequestMutation.isPending &&
+                      resolveServiceRequestMutation.variables ===
+                        servicePoint.pendingServiceRequest.id
+                        ? 'Đang xác nhận…'
+                        : 'Đã đến hỗ trợ'}
+                    </button>
+                  </div>
                 ) : (
                   <p className="mt-4 rounded-xl bg-success-soft px-4 py-3 text-sm font-bold text-success">
                     Không có yêu cầu hỗ trợ đang chờ

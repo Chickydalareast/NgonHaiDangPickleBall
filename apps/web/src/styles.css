@@ -12,6 +12,8 @@
   --color-success-soft: #e1f1e8;
   --color-danger: #a9362f;
   --color-danger-soft: #f7e4e2;
+  --color-warning: #9a6500;
+  --color-warning-soft: #fff1c9;
   --shadow-panel: 0 18px 50px rgb(31 33 30 / 8%);
 }
 

@@ -17,7 +17,9 @@ interface DashboardRow extends QueryResultRow {
   open_bill_total_vnd: number | null;
   open_bill_opened_at: Date | null;
   pending_order_count: number;
-  has_pending_service_request: boolean;
+  pending_service_request_id: string | null;
+  pending_service_request_message: string | null;
+  pending_service_request_created_at: Date | null;
 }
 
 export function createAdminDashboardRepository(pool: Pool): AdminDashboardRepository {
@@ -41,18 +43,23 @@ export function createAdminDashboardRepository(pool: Pool): AdminDashboardReposi
             WHERE orders.bill_id = open_bill.id
               AND orders.status = 'PENDING'
           ), 0)::integer AS pending_order_count,
-          EXISTS(
-            SELECT 1
-            FROM service_requests
-            WHERE service_requests.service_point_id = service_points.id
-              AND service_requests.status = 'PENDING'
-          ) AS has_pending_service_request
+          pending_request.id AS pending_service_request_id,
+          pending_request.message AS pending_service_request_message,
+          pending_request.created_at AS pending_service_request_created_at
         FROM service_points
         INNER JOIN venues
           ON venues.id = service_points.venue_id
         LEFT JOIN bills AS open_bill
           ON open_bill.service_point_id = service_points.id
          AND open_bill.status = 'OPEN'
+        LEFT JOIN LATERAL (
+          SELECT id, message, created_at
+          FROM service_requests
+          WHERE service_requests.service_point_id = service_points.id
+            AND service_requests.status = 'PENDING'
+          ORDER BY service_requests.created_at, service_requests.id
+          LIMIT 1
+        ) AS pending_request ON true
         ORDER BY
           service_points.sort_order,
           service_points.name,
@@ -78,7 +85,15 @@ export function createAdminDashboardRepository(pool: Pool): AdminDashboardReposi
                 }
               : null,
           pendingOrderCount: row.pending_order_count,
-          hasPendingServiceRequest: row.has_pending_service_request,
+          hasPendingServiceRequest: row.pending_service_request_id !== null,
+          pendingServiceRequest:
+            row.pending_service_request_id && row.pending_service_request_created_at
+              ? {
+                  id: row.pending_service_request_id,
+                  message: row.pending_service_request_message,
+                  createdAt: row.pending_service_request_created_at.toISOString(),
+                }
+              : null,
         })),
       });
     },

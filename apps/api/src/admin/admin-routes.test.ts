@@ -49,6 +49,11 @@ const dashboardFixture: AdminDashboardResponse = adminDashboardResponseSchema.pa
       },
       pendingOrderCount: 2,
       hasPendingServiceRequest: true,
+      pendingServiceRequest: {
+        id: '019f2bbb-797d-777f-947e-848374706205',
+        message: 'Cần hỗ trợ tại sân',
+        createdAt: '2026-07-05T00:01:00.000Z',
+      },
     },
   ],
 });

@@ -89,3 +89,4 @@ jobs:
           pnpm realtime:verify:db
           pnpm operations:verify:db
           pnpm bills:verify:db
+          pnpm staff:verify:db

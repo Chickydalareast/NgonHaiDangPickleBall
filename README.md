@@ -147,3 +147,12 @@ Admin chỉ hoàn tất bill khi mọi order đã `SERVED` hoặc `CANCELLED`. C
 pnpm bills:verify:db
 pnpm bills:verify
 ```
+
+## Step 9 — Call staff
+
+Customer có thể gửi một yêu cầu hỗ trợ tại sân với ghi chú tùy chọn. PostgreSQL bảo đảm mỗi sân chỉ có một request `PENDING`; gửi lặp trả lại request hiện có. Admin nhận SSE realtime, xem yêu cầu trên court card và resolve request. Customer polling 15 giây để mở lại nút sau khi nhân viên xử lý.
+
+```bash
+pnpm staff:verify:db
+pnpm staff:verify
+```

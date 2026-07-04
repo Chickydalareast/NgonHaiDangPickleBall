@@ -9,6 +9,8 @@ import {
   completeAdminBillResponseSchema,
   loginRequestSchema,
   logoutResponseSchema,
+  resolveAdminServiceRequestResponseSchema,
+  serviceRequestApiErrorSchema,
   updateAdminOrderLineRequestSchema,
   updateAdminOrderStatusRequestSchema,
   voidAdminOrderLineRequestSchema,
@@ -19,6 +21,7 @@ import {
   type AuthSessionResponse,
   type LoginRequest,
   type LogoutResponse,
+  type ResolveAdminServiceRequestResponse,
   type UpdateAdminOrderLineRequest,
   type UpdateAdminOrderStatusRequest,
   type VoidAdminOrderLineRequest,
@@ -85,6 +88,16 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
         response.status,
         completionError.data.code,
         completionError.data.message,
+      );
+    }
+
+    const serviceRequestError = serviceRequestApiErrorSchema.safeParse(body);
+
+    if (serviceRequestError.success) {
+      throw new AdminApiError(
+        response.status,
+        serviceRequestError.data.code,
+        serviceRequestError.data.message,
       );
     }
 
@@ -187,6 +200,16 @@ export async function completeAdminBill(billId: string): Promise<CompleteAdminBi
   return completeAdminBillResponseSchema.parse(
     await request(`/api/admin/bills/${encodeURIComponent(billId)}/complete`, {
       method: 'POST',
+    }),
+  );
+}
+
+export async function resolveAdminServiceRequest(
+  requestId: string,
+): Promise<ResolveAdminServiceRequestResponse> {
+  return resolveAdminServiceRequestResponseSchema.parse(
+    await request(`/api/admin/service-requests/${encodeURIComponent(requestId)}/resolve`, {
+      method: 'PATCH',
     }),
   );
 }

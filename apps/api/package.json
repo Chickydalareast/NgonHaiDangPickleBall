@@ -19,7 +19,8 @@
     "auth:verify:db": "tsx src/admin/verify.ts",
     "realtime:verify:db": "tsx src/admin/realtime-verify.ts",
     "operations:verify:db": "tsx src/admin/order-operations-verify.ts",
-    "bills:verify:db": "tsx src/admin/bill-completion-verify.ts"
+    "bills:verify:db": "tsx src/admin/bill-completion-verify.ts",
+    "staff:verify:db": "tsx src/service-request/service-request-verify.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.0.2",
