@@ -51,7 +51,9 @@
     "realtime:verify:db": "tsx apps/api/src/admin/realtime-verify.ts",
     "realtime:verify": "tsx scripts/verify-admin-realtime.ts",
     "operations:verify:db": "tsx apps/api/src/admin/order-operations-verify.ts",
-    "operations:verify": "tsx scripts/verify-admin-order-operations.ts"
+    "operations:verify": "tsx scripts/verify-admin-order-operations.ts",
+    "bills:verify:db": "tsx apps/api/src/admin/bill-completion-verify.ts",
+    "bills:verify": "tsx scripts/verify-admin-bill-completion.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

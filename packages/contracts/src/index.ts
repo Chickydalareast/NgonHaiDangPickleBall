@@ -27,6 +27,13 @@ export {
 } from './admin-dashboard.js';
 
 export {
+  adminBillCompletionApiErrorSchema,
+  completeAdminBillResponseSchema,
+  type AdminBillCompletionApiError,
+  type CompleteAdminBillResponse,
+} from './admin-bill-completion.js';
+
+export {
   addAdminBillItemRequestSchema,
   adminBillDetailResponseSchema,
   adminBillOrderLineSchema,
@@ -52,12 +59,14 @@ export {
 } from './admin-order-operations.js';
 
 export {
+  adminRealtimeBillCompletedEventSchema,
   adminRealtimeBillUpdatedEventSchema,
   adminRealtimeEventSchema,
   adminRealtimeOrderAcceptedEventSchema,
   adminRealtimeOrderCancelledEventSchema,
   adminRealtimeOrderCreatedEventSchema,
   adminRealtimeOrderServedEventSchema,
+  type AdminRealtimeBillCompletedEvent,
   type AdminRealtimeBillUpdatedEvent,
   type AdminRealtimeEvent,
   type AdminRealtimeOrderAcceptedEvent,

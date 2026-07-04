@@ -192,6 +192,10 @@ async function main(): Promise<void> {
       orderId: order.order.id,
     });
 
+    if (realtimeEvent.type !== 'order.created') {
+      throw new Error(`Expected order.created, received ${realtimeEvent.type}.`);
+    }
+
     const replayResponse = await fetch(
       `${baseUrl}/api/public/service-points/${servicePointSlug}/orders`,
       {

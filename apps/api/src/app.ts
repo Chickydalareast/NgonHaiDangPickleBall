@@ -5,6 +5,8 @@ import fastifyCookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 import { createRequireAdmin } from './admin/admin-auth-guard.js';
+import { registerAdminBillCompletionRoutes } from './admin/admin-bill-completion-routes.js';
+import type { AdminBillCompletionService } from './admin/admin-bill-completion-service.js';
 import { registerAdminAuthRoutes } from './admin/admin-auth-routes.js';
 import type { AdminAuthService } from './admin/admin-auth-service.js';
 import type { AdminDashboardRepository } from './admin/admin-dashboard-repository.js';
@@ -31,6 +33,7 @@ export interface HealthResponse {
 
 export interface AppDependencies {
   adminAuthService?: AdminAuthService;
+  adminBillCompletionService?: AdminBillCompletionService;
   adminCookieSecure?: boolean;
   adminDashboardRepository?: AdminDashboardRepository;
   adminOrderOperationsService?: AdminOrderOperationsService;
@@ -83,7 +86,8 @@ export function buildApp(
   }
 
   if (
-    (dependencies.adminDashboardRepository ||
+    (dependencies.adminBillCompletionService ||
+      dependencies.adminDashboardRepository ||
       dependencies.adminOrderOperationsService ||
       dependencies.adminRealtimeHub) &&
     !dependencies.adminAuthService
@@ -103,6 +107,13 @@ export function buildApp(
       requireAdmin,
       secureCookie: dependencies.adminCookieSecure ?? false,
     });
+
+    if (dependencies.adminBillCompletionService) {
+      registerAdminBillCompletionRoutes(app, {
+        service: dependencies.adminBillCompletionService,
+        requireAdmin,
+      });
+    }
 
     if (dependencies.adminDashboardRepository) {
       registerAdminDashboardRoutes(app, {

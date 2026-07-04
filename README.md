@@ -138,3 +138,12 @@ Admin có thể mở bill, chấp nhận/phục vụ/hủy order, thêm món th�
 pnpm operations:verify:db
 pnpm operations:verify
 ```
+
+## Step 8 — Bill completion
+
+Admin chỉ hoàn tất bill khi mọi order đã `SERVED` hoặc `CANCELLED`. Completion khóa theo sân và bill, tính lại tổng server-side, chuyển bill sang `COMPLETED`, phát `bill.completed`, đưa sân về trạng thái rảnh và bảo đảm order tiếp theo tạo bill mới.
+
+```bash
+pnpm bills:verify:db
+pnpm bills:verify
+```

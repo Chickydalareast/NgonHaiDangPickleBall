@@ -1,16 +1,19 @@
 import {
   addAdminBillItemRequestSchema,
+  adminBillCompletionApiErrorSchema,
   adminBillDetailResponseSchema,
   adminDashboardResponseSchema,
   adminOrderOperationApiErrorSchema,
   authApiErrorSchema,
   authSessionResponseSchema,
+  completeAdminBillResponseSchema,
   loginRequestSchema,
   logoutResponseSchema,
   updateAdminOrderLineRequestSchema,
   updateAdminOrderStatusRequestSchema,
   voidAdminOrderLineRequestSchema,
   type AddAdminBillItemRequest,
+  type CompleteAdminBillResponse,
   type AdminBillDetailResponse,
   type AdminDashboardResponse,
   type AuthSessionResponse,
@@ -72,6 +75,16 @@ async function request(path: string, init?: RequestInit): Promise<unknown> {
         response.status,
         operationError.data.code,
         operationError.data.message,
+      );
+    }
+
+    const completionError = adminBillCompletionApiErrorSchema.safeParse(body);
+
+    if (completionError.success) {
+      throw new AdminApiError(
+        response.status,
+        completionError.data.code,
+        completionError.data.message,
       );
     }
 
@@ -167,5 +180,13 @@ export async function voidAdminOrderLine(
       `/api/admin/order-lines/${encodeURIComponent(lineId)}/void`,
       jsonRequest('POST', payload),
     ),
+  );
+}
+
+export async function completeAdminBill(billId: string): Promise<CompleteAdminBillResponse> {
+  return completeAdminBillResponseSchema.parse(
+    await request(`/api/admin/bills/${encodeURIComponent(billId)}/complete`, {
+      method: 'POST',
+    }),
   );
 }

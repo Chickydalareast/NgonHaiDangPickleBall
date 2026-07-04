@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { config as loadDotenv } from 'dotenv';
 
 import { createAdminAuthService } from './admin/admin-auth-service.js';
+import { createAdminBillCompletionService } from './admin/admin-bill-completion-service.js';
 import { createAdminDashboardRepository } from './admin/admin-dashboard-repository.js';
 import { createAdminOrderOperationsService } from './admin/admin-order-operations-service.js';
 import { createAdminRealtimeHub } from './admin/admin-realtime-hub.js';
@@ -48,6 +49,7 @@ const app = buildApp(
   },
   {
     adminAuthService,
+    adminBillCompletionService: createAdminBillCompletionService(database.pool, adminRealtimeHub),
     adminCookieSecure: new URL(apiEnvironment.WEB_ORIGIN).protocol === 'https:',
     adminDashboardRepository: createAdminDashboardRepository(database.pool),
     adminOrderOperationsService: createAdminOrderOperationsService(database.pool, adminRealtimeHub),

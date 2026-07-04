@@ -25,6 +25,13 @@ export const adminRealtimeBillUpdatedEventSchema = z
     orderId: identifierSchema,
   })
   .strict();
+export const adminRealtimeBillCompletedEventSchema = z
+  .object({
+    type: z.literal('bill.completed'),
+    servicePointId: identifierSchema,
+    billId: identifierSchema,
+  })
+  .strict();
 
 export const adminRealtimeEventSchema = z.discriminatedUnion('type', [
   adminRealtimeOrderCreatedEventSchema,
@@ -32,6 +39,7 @@ export const adminRealtimeEventSchema = z.discriminatedUnion('type', [
   adminRealtimeOrderServedEventSchema,
   adminRealtimeOrderCancelledEventSchema,
   adminRealtimeBillUpdatedEventSchema,
+  adminRealtimeBillCompletedEventSchema,
 ]);
 
 export type AdminRealtimeOrderCreatedEvent = z.infer<typeof adminRealtimeOrderCreatedEventSchema>;
@@ -41,4 +49,5 @@ export type AdminRealtimeOrderCancelledEvent = z.infer<
   typeof adminRealtimeOrderCancelledEventSchema
 >;
 export type AdminRealtimeBillUpdatedEvent = z.infer<typeof adminRealtimeBillUpdatedEventSchema>;
+export type AdminRealtimeBillCompletedEvent = z.infer<typeof adminRealtimeBillCompletedEventSchema>;
 export type AdminRealtimeEvent = z.infer<typeof adminRealtimeEventSchema>;

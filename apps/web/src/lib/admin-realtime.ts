@@ -18,6 +18,7 @@ const eventTypes: AdminRealtimeEvent['type'][] = [
   'order.served',
   'order.cancelled',
   'bill.updated',
+  'bill.completed',
 ];
 
 export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {

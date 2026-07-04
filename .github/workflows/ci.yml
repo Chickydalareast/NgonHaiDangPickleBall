@@ -87,3 +87,5 @@ jobs:
           pnpm order:verify:db
           pnpm auth:verify:db
           pnpm realtime:verify:db
+          pnpm operations:verify:db
+          pnpm bills:verify:db

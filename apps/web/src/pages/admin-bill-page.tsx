@@ -5,6 +5,7 @@ import { Link, useNavigate, useParams } from 'react-router';
 import {
   AdminApiError,
   addAdminBillItem,
+  completeAdminBill,
   getAdminBill,
   getAdminSession,
   updateAdminOrderLine,
@@ -127,6 +128,18 @@ export function AdminBillPage() {
     onError: (error) =>
       setOperationError(error instanceof Error ? error.message : 'Không thể void món.'),
   });
+  const completeMutation = useMutation({
+    mutationFn: () => completeAdminBill(billId ?? ''),
+    async onSuccess() {
+      setOperationError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] }),
+        queryClient.invalidateQueries({ queryKey: ['admin', 'bill', billId] }),
+      ]);
+    },
+    onError: (error) =>
+      setOperationError(error instanceof Error ? error.message : 'Không thể hoàn tất bill.'),
+  });
 
   if (sessionQuery.isPending || billQuery.isPending) {
     return (
@@ -155,11 +168,15 @@ export function AdminBillPage() {
 
   const detail = billQuery.data;
   const isOpen = detail.bill.status === 'OPEN';
+  const unresolvedOrderCount = detail.orders.filter(
+    (order) => order.status === 'PENDING' || order.status === 'ACCEPTED',
+  ).length;
   const busy =
     statusMutation.isPending ||
     addItemMutation.isPending ||
     quantityMutation.isPending ||
-    voidMutation.isPending;
+    voidMutation.isPending ||
+    completeMutation.isPending;
 
   return (
     <main className="min-h-screen bg-surface px-4 py-6 text-ink sm:px-6 lg:px-8">
@@ -177,7 +194,9 @@ export function AdminBillPage() {
               <p className="mt-2 text-sm text-muted">{detail.venue.name}</p>
             </div>
             <div className="rounded-2xl bg-neutral-soft p-4 sm:text-right">
-              <p className="text-xs font-bold uppercase tracking-wide text-muted">Bill tạm tính</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-muted">
+                {isOpen ? 'Bill tạm tính' : 'Tổng bill đã hoàn tất'}
+              </p>
               <p className="mt-1 text-3xl font-black">
                 {moneyFormatter.format(detail.bill.totalVnd)}
               </p>
@@ -186,6 +205,28 @@ export function AdminBillPage() {
                   ? 'Realtime đang kết nối'
                   : 'Polling dự phòng 15 giây'}
               </p>
+              {isOpen ? (
+                <button
+                  type="button"
+                  disabled={busy || unresolvedOrderCount > 0}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `Hoàn tất bill ${moneyFormatter.format(detail.bill.totalVnd)}? Sau thao tác này bill sẽ bị khóa.`,
+                      )
+                    ) {
+                      completeMutation.mutate();
+                    }
+                  }}
+                  className="mt-4 w-full rounded-xl bg-success px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {completeMutation.isPending ? 'Đang hoàn tất…' : 'Hoàn tất bill'}
+                </button>
+              ) : (
+                <p className="mt-4 rounded-xl bg-success-soft px-3 py-2 text-sm font-black text-success">
+                  Bill đã hoàn tất và sân đã trở về trạng thái rảnh
+                </p>
+              )}
             </div>
           </div>
         </header>
@@ -193,6 +234,13 @@ export function AdminBillPage() {
         {operationError ? (
           <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 font-bold text-danger">
             {operationError}
+          </p>
+        ) : null}
+
+        {isOpen && unresolvedOrderCount > 0 ? (
+          <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 font-bold text-danger">
+            Còn {unresolvedOrderCount} order đang chờ hoặc chưa phục vụ. Xử lý xong trước khi hoàn
+            tất bill.
           </p>
         ) : null}
 
