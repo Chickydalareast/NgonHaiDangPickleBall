@@ -5,8 +5,9 @@ Clean rebuild of the **Court Ordering & Live Bill System**.
 ## Status
 
 - Step 0 — clean monorepo foundation: complete.
-- Step 1 — local infrastructure: implemented, pending CTO verification.
-- Business features are intentionally not implemented yet.
+- Step 1 — local infrastructure: complete.
+- Step 2 — database foundation: implemented, pending CTO verification.
+- Business APIs are intentionally not implemented yet.
 
 ## Requirements
 
@@ -21,56 +22,43 @@ Clean rebuild of the **Court Ordering & Live Bill System**.
 pnpm check
 ```
 
-The gate verifies the toolchain, formatting, lint, TypeScript, tests, builds,
-environment contract, and Docker Compose configuration.
-
-## Full local stack
-
-Create `.env` from `.env.example` once, then run:
+## Local stack
 
 ```bash
 pnpm compose:up
 pnpm smoke
 ```
 
-Open:
+Open `http://localhost:8080`.
 
-```text
-http://localhost:8080
-```
+`pnpm compose:down` keeps the PostgreSQL named volume. Never add `--volumes` unless database deletion is intentional and explicitly approved.
 
-Useful commands:
-
-```bash
-pnpm compose:ps
-pnpm compose:logs
-pnpm compose:down
-```
-
-`compose:down` keeps the PostgreSQL named volume. Do not add `--volumes` unless
-you intentionally want to delete local database data.
-
-## Host development mode
-
-Start only PostgreSQL:
+## Database workflow
 
 ```bash
 pnpm infra:up
+pnpm db:migrate
+pnpm db:seed
+pnpm db:verify
 ```
 
-Then run the API and Vite development servers:
+Additional Step 2 verification:
 
 ```bash
-pnpm dev
+pnpm db:verify:empty
+pnpm db:verify:persistence
 ```
 
-Open:
+- `db:verify:empty` creates a disposable database, migrates and seeds it twice, verifies idempotency, then drops it.
+- `db:verify:persistence` restarts only the PostgreSQL container and verifies the seeded venue retains the same UUID.
+- Seed credentials come from ignored `.env`; the password is never committed or printed.
 
-```text
-http://localhost:5173
+Docker one-off tools are also available:
+
+```bash
+docker compose --profile tools run --rm migrate
+docker compose --profile tools run --rm seed
 ```
-
-Vite proxies `/api/*` to the local Fastify process.
 
 ## Workspace
 
@@ -88,4 +76,6 @@ infra/
 
 - `docs/architecture/0000-v1-baseline.md`
 - `docs/architecture/0001-local-infrastructure.md`
+- `docs/architecture/0002-database-foundation.md`
 - `docs/decisions/ADR-0001-clean-rebuild.md`
+- `docs/decisions/ADR-0002-postgresql-schema-and-migrations.md`

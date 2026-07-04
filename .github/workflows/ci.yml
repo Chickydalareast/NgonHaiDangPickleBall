@@ -31,3 +31,54 @@ jobs:
 
       - name: Run quality gate
         run: pnpm check
+
+  database:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://nhdp:nhdp_ci_password@localhost:5432/nhdp
+      DATABASE_POOL_MAX: 5
+      ADMIN_SEED_EMAIL: admin@nhdp.local
+      ADMIN_SEED_PASSWORD: ci-only-admin-password-change-me
+
+    services:
+      postgres:
+        image: postgres:18.4-alpine3.23
+        env:
+          POSTGRES_DB: nhdp
+          POSTGRES_USER: nhdp
+          POSTGRES_PASSWORD: nhdp_ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U nhdp -d nhdp"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+
+      - name: Setup Corepack and pnpm
+        run: |
+          npm install --global corepack@latest
+          corepack enable pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm db:migrate
+
+      - name: Seed and verify database
+        run: |
+          pnpm db:seed
+          pnpm db:verify
+          pnpm db:verify:empty

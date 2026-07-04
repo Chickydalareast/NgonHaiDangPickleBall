@@ -8,15 +8,25 @@
     "start": "node dist/server.js",
     "test": "tsx --test src/**/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "db:generate": "drizzle-kit generate --config=src/db/drizzle.config.ts",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:verify": "tsx src/db/verify.ts",
+    "db:verify:empty": "tsx src/db/verify-empty.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.0.2",
     "dotenv": "^17.4.2",
+    "drizzle-orm": "0.45.2",
     "fastify": "^5.9.0",
+    "pg": "8.22.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
+    "@types/pg": "8.15.6",
+    "drizzle-kit": "0.31.10",
     "tsx": "^4.22.5",
     "typescript": "^6.0.3"
   }

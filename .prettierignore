@@ -3,3 +3,4 @@ dist
 coverage
 .vite
 pnpm-lock.yaml
+apps/api/drizzle/

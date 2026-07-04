@@ -35,6 +35,7 @@ COPY --from=production-dependencies /workspace/node_modules ./node_modules
 COPY --from=production-dependencies /workspace/apps/api/node_modules ./apps/api/node_modules
 COPY --from=production-dependencies /workspace/apps/api/package.json ./apps/api/package.json
 COPY --from=build /workspace/apps/api/dist ./apps/api/dist
+COPY --from=build /workspace/apps/api/drizzle ./apps/api/drizzle
 
 USER node
 

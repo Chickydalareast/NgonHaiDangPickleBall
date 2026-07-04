@@ -30,7 +30,17 @@
     "compose:ps": "docker compose ps",
     "infra:up": "docker compose up -d postgres",
     "infra:down": "docker compose down",
-    "smoke": "tsx scripts/smoke-local.ts"
+    "smoke": "tsx scripts/smoke-local.ts",
+    "db:generate": "pnpm --filter @nhdp/api exec drizzle-kit generate --config=src/db/drizzle.config.ts",
+    "db:migrate": "tsx apps/api/src/db/migrate.ts",
+    "db:seed": "tsx apps/api/src/db/seed.ts",
+    "db:verify": "tsx apps/api/src/db/verify.ts",
+    "db:verify:empty": "tsx apps/api/src/db/verify-empty.ts",
+    "db:verify:persistence": "tsx apps/api/src/db/verify-persistence.ts",
+    "db:bootstrap": "pnpm db:migrate && pnpm db:seed && pnpm db:verify",
+    "db:verify:all": "pnpm db:verify && pnpm db:verify:empty",
+    "db:migrate:docker": "docker compose --profile tools run --rm migrate",
+    "db:seed:docker": "docker compose --profile tools run --rm seed"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
