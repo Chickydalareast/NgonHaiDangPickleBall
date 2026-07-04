@@ -1,0 +1,35 @@
+{
+  "name": "ngon-hai-dang-pickleball",
+  "version": "0.0.0",
+  "private": true,
+  "description": "QR ordering and live court bill system for Ngon Hai Dang Pickleball.",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@11.9.0+sha512.bd682d5d03fe525ef7c9fd6780c6884d1e756ac4c9c9fe00c538782824310dcf90e3ddc4f53835f06dfaebd5085e41855e0bcbb3b60de2ac5bbab89e5036f03b",
+  "engines": {
+    "node": ">=24.17.0 <25",
+    "pnpm": ">=11 <12"
+  },
+  "scripts": {
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "env:check": "tsx scripts/check-env.ts",
+    "toolchain:check": "node scripts/assert-toolchain.mjs",
+    "check": "pnpm toolchain:check && pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm env:check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.2",
+    "dotenv": "^17.4.2",
+    "eslint": "^10.6.0",
+    "globals": "^16.5.0",
+    "prettier": "^3.9.4",
+    "tsx": "^4.22.5",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.62.1",
+    "zod": "^4.4.3"
+  }
+}
