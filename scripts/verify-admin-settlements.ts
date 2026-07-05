@@ -300,6 +300,7 @@ async function main(): Promise<void> {
       },
     });
     assert.equal(partialAgain.status, 200);
+    detail = adminBillDetailResponseSchema.parse(await partialAgain.json());
 
     const serveResponse = await requestJson(`/api/admin/orders/${created.order.id}/status`, {
       method: 'PATCH',
@@ -307,10 +308,12 @@ async function main(): Promise<void> {
       body: { status: 'SERVED' },
     });
     assert.equal(serveResponse.status, 200);
+    detail = adminBillDetailResponseSchema.parse(await serveResponse.json());
 
     const incompleteResponse = await requestJson(`/api/admin/bills/${billId}/complete`, {
       method: 'POST',
       cookie,
+      body: { revision: detail.bill.updatedAt },
     });
     assert.equal(incompleteResponse.status, 409);
     assert.equal(
@@ -335,6 +338,7 @@ async function main(): Promise<void> {
     const completeResponse = await requestJson(`/api/admin/bills/${billId}/complete`, {
       method: 'POST',
       cookie,
+      body: { revision: detail.bill.updatedAt },
     });
     assert.equal(completeResponse.status, 200);
     completeAdminBillResponseSchema.parse(await completeResponse.json());

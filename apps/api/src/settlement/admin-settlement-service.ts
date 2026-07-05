@@ -298,13 +298,10 @@ export function createAdminSettlementService(
           );
         }
 
-        if (
-          line.line_status !== 'ACTIVE' ||
-          (line.order_status !== 'ACCEPTED' && line.order_status !== 'SERVED')
-        ) {
+        if (line.line_status !== 'ACTIVE' || line.order_status === 'CANCELLED') {
           throw new AdminSettlementDomainError(
             'ORDER_LINE_NOT_SETTLEABLE',
-            'Chỉ line đang hoạt động thuộc order đã chấp nhận hoặc đã phục vụ mới được settlement.',
+            'Chỉ line đang hoạt động thuộc order chưa hủy mới được settlement.',
           );
         }
 

@@ -69,6 +69,49 @@ async function main(): Promise<void> {
       const item = itemResult.rows[0];
       assert.ok(item);
 
+      const adminResult = await database.pool.query<{ id: string }>(
+        `SELECT id FROM admin_users WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1`,
+      );
+      const adminUserId = adminResult.rows[0]?.id;
+      assert.ok(adminUserId);
+
+      const emptyBillResult = await database.pool.query<{ id: string }>(
+        `
+          INSERT INTO bills (venue_id, service_point_id, status, subtotal_vnd, total_vnd)
+          SELECT venue_id, id, 'OPEN', 0, 0
+          FROM service_points
+          WHERE slug = 'san-02'
+          RETURNING id
+        `,
+      );
+      const emptyBillId = emptyBillResult.rows[0]?.id;
+      assert.ok(emptyBillId);
+
+      const hiddenEmptyBill = await publicBill.read('san-02');
+      assert.equal(hiddenEmptyBill.bill, null);
+      assert.deepEqual(hiddenEmptyBill.orders, []);
+      assert.equal(hiddenEmptyBill.summary.grossTotalVnd, 0);
+
+      const cancelledOnly = await createOrder.create({
+        servicePointSlug: 'san-02',
+        request: {
+          idempotencyKey: randomUUID(),
+          items: [{ catalogItemId: item.id, quantity: 1 }],
+        },
+      });
+      assert.equal(cancelledOnly.bill.id, emptyBillId);
+      await adminOperations.updateOrderStatus({
+        adminUserId,
+        orderId: cancelledOnly.order.id,
+        request: { status: 'CANCELLED', reason: 'Verify cancelled activity retention' },
+      });
+
+      const cancelledOnlyBill = await publicBill.read('san-02');
+      assert.equal(cancelledOnlyBill.bill?.id, emptyBillId);
+      assert.equal(cancelledOnlyBill.orders.length, 1);
+      assert.equal(cancelledOnlyBill.orders[0]?.status, 'CANCELLED');
+      assert.equal(cancelledOnlyBill.summary.grossTotalVnd, 0);
+
       const first = await createOrder.create({
         servicePointSlug: 'san-01',
         request: {
@@ -120,11 +163,6 @@ async function main(): Promise<void> {
           items: [{ catalogItemId: item.id, quantity: 4 }],
         },
       });
-      const adminResult = await database.pool.query<{ id: string }>(
-        `SELECT id FROM admin_users WHERE status = 'ACTIVE' ORDER BY created_at LIMIT 1`,
-      );
-      const adminUserId = adminResult.rows[0]?.id;
-      assert.ok(adminUserId);
       await adminOperations.updateOrderStatus({
         adminUserId,
         orderId: cancelled.order.id,
@@ -147,12 +185,6 @@ async function main(): Promise<void> {
         'CANCELLED',
       );
 
-      const empty = await publicBill.read('san-02');
-      assert.equal(empty.bill, null);
-      assert.deepEqual(empty.orders, []);
-      assert.equal(empty.summary.grossTotalVnd, 0);
-      assert.deepEqual(empty.summary.items, []);
-
       await database.pool.query(
         `UPDATE service_points SET status = 'INACTIVE', updated_at = now() WHERE slug = 'san-02'`,
       );
@@ -170,7 +202,8 @@ async function main(): Promise<void> {
             priceSnapshotsSeparated: true,
             cancelledOrderExcludedFromSummary: true,
             adminAndPublicSummaryMatch: true,
-            emptyCourtReturnsNullBill: true,
+            emptyOpenBillHiddenFromCustomer: true,
+            cancelledOnlyBillRemainsActive: true,
             inactiveCourtRejected: true,
             grossTotalVnd: separated.summary.grossTotalVnd,
           },

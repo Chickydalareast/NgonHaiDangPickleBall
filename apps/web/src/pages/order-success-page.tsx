@@ -67,12 +67,20 @@ export function OrderSuccessPage() {
           </strong>
         </div>
 
-        <Link
-          to={`/s/${slug}`}
-          className="mt-6 flex justify-center rounded-2xl bg-brand px-5 py-4 font-black text-white"
-        >
-          Tiếp tục xem menu
-        </Link>
+        <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <Link
+            to={`/s/${slug}/bill`}
+            className="flex justify-center rounded-2xl bg-brand px-5 py-4 font-black text-white"
+          >
+            Theo dõi bill
+          </Link>
+          <Link
+            to={`/s/${slug}`}
+            className="flex justify-center rounded-2xl border border-line px-5 py-4 font-black text-ink"
+          >
+            Tiếp tục gọi món
+          </Link>
+        </div>
       </section>
     </main>
   );

@@ -42,6 +42,7 @@ const dashboardFixture: AdminDashboardResponse = adminDashboardResponseSchema.pa
       slug: 'san-01',
       name: 'Sân 01',
       status: 'ACTIVE',
+      billLifecycleState: 'OPEN_ACTIVE',
       openBill: {
         id: '019f2bbb-797d-777f-947e-848374706204',
         totalVnd: 120_000,
@@ -277,6 +278,7 @@ void test('GET admin dashboard returns the protected typed snapshot', async (con
   assert.equal(response.headers['cache-control'], 'no-store');
   const dashboard = adminDashboardResponseSchema.parse(response.json());
   assert.equal(dashboard.servicePoints[0]?.pendingOrderCount, 2);
+  assert.equal(dashboard.servicePoints[0]?.billLifecycleState, 'OPEN_ACTIVE');
   assert.equal(dashboard.servicePoints[0]?.openBill?.totalVnd, 120_000);
 });
 

@@ -2,6 +2,7 @@ import {
   adminRealtimeEventSchema,
   completeAdminBillResponseSchema,
   type AdminRealtimeEvent,
+  type CompleteAdminBillRequest,
   type CompleteAdminBillResponse,
 } from '@nhdp/contracts';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
@@ -12,9 +13,9 @@ import type { OrderCreatedEventPublisher } from '../order/create-order-service.j
 export type AdminBillCompletionErrorCode =
   | 'ADMIN_BILL_NOT_FOUND'
   | 'ADMIN_BILL_NOT_OPEN'
-  | 'BILL_HAS_UNRESOLVED_ORDERS'
   | 'BILL_HAS_OUTSTANDING_SETTLEMENTS'
-  | 'BILL_TOTAL_TOO_LARGE';
+  | 'BILL_TOTAL_TOO_LARGE'
+  | 'BILL_REVISION_STALE';
 
 export class AdminBillCompletionDomainError extends Error {
   constructor(
@@ -30,6 +31,7 @@ export interface AdminBillCompletionService {
   completeBill(command: {
     adminUserId: string;
     billId: string;
+    request?: CompleteAdminBillRequest;
   }): Promise<CompleteAdminBillResponse>;
 }
 
@@ -42,6 +44,7 @@ interface LockedBillRow extends QueryResultRow {
   venue_id: string;
   service_point_id: string;
   status: 'OPEN' | 'COMPLETED' | 'CANCELLED';
+  updated_at: Date;
 }
 
 interface CountRow extends QueryResultRow {
@@ -105,7 +108,7 @@ export function createAdminBillCompletionService(
 
         const billResult = await client.query<LockedBillRow>(
           `
-            SELECT id, venue_id, service_point_id, status
+            SELECT id, venue_id, service_point_id, status, updated_at
             FROM bills
             WHERE id = $1
             FOR UPDATE
@@ -125,21 +128,10 @@ export function createAdminBillCompletionService(
           );
         }
 
-        const unresolvedResult = await client.query<CountRow>(
-          `
-            SELECT COUNT(*)::text AS count
-            FROM orders
-            WHERE bill_id = $1
-              AND status IN ('PENDING', 'ACCEPTED')
-          `,
-          [bill.id],
-        );
-        const unresolvedCount = Number(unresolvedResult.rows[0]?.count ?? 0);
-
-        if (unresolvedCount > 0) {
+        if (command.request && bill.updated_at.toISOString() !== command.request.revision) {
           throw new AdminBillCompletionDomainError(
-            'BILL_HAS_UNRESOLVED_ORDERS',
-            'Bill còn order đang chờ hoặc chưa phục vụ.',
+            'BILL_REVISION_STALE',
+            'Bill đã thay đổi sau lần tạm tính. Vui lòng tạm tính lại.',
           );
         }
 

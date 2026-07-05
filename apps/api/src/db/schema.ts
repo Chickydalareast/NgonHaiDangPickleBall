@@ -327,6 +327,81 @@ export const orderLines = pgTable(
   ],
 );
 
+export const paymentBatches = pgTable(
+  'payment_batches',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    billId: uuid('bill_id')
+      .notNull()
+      .references(() => bills.id, { onDelete: 'restrict' }),
+    idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull().unique(),
+    totalVnd: integer('total_vnd').notNull(),
+    createdByAdminUserId: uuid('created_by_admin_user_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    createdAt,
+  },
+  (table) => [
+    index('payment_batches_bill_created_idx').on(table.billId, table.createdAt),
+    check('payment_batches_total_nonnegative_check', sql`${table.totalVnd} >= 0`),
+  ],
+);
+
+export const courtRentalCharges = pgTable(
+  'court_rental_charges',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    billId: uuid('bill_id')
+      .notNull()
+      .references(() => bills.id, { onDelete: 'restrict' }),
+    orderLineId: uuid('order_line_id')
+      .notNull()
+      .unique()
+      .references(() => orderLines.id, { onDelete: 'restrict' }),
+    idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull().unique(),
+    startTime: varchar('start_time', { length: 5 }).notNull(),
+    durationHours: integer('duration_hours').notNull(),
+    baseAmountVnd: integer('base_amount_vnd').notNull(),
+    surchargeAmountVnd: integer('surcharge_amount_vnd').notNull(),
+    totalAmountVnd: integer('total_amount_vnd').notNull(),
+    breakdown: jsonb('breakdown')
+      .$type<
+        {
+          sequence: number;
+          startsAt: string;
+          endsAt: string;
+          basePriceVnd: number;
+          surchargeVnd: number;
+          totalVnd: number;
+        }[]
+      >()
+      .notNull(),
+    createdByAdminUserId: uuid('created_by_admin_user_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    uniqueIndex('one_court_rental_per_bill').on(table.billId),
+    index('court_rental_charges_bill_idx').on(table.billId),
+    check('court_rental_charges_duration_positive_check', sql`${table.durationHours} > 0`),
+    check('court_rental_charges_base_nonnegative_check', sql`${table.baseAmountVnd} >= 0`),
+    check(
+      'court_rental_charges_surcharge_nonnegative_check',
+      sql`${table.surchargeAmountVnd} >= 0`,
+    ),
+    check(
+      'court_rental_charges_total_formula_check',
+      sql`${table.totalAmountVnd} = ${table.baseAmountVnd} + ${table.surchargeAmountVnd}`,
+    ),
+  ],
+);
+
 export const orderLineSettlements = pgTable(
   'order_line_settlements',
   {
@@ -339,6 +414,9 @@ export const orderLineSettlements = pgTable(
     orderLineId: uuid('order_line_id')
       .notNull()
       .references(() => orderLines.id, { onDelete: 'restrict' }),
+    paymentBatchId: uuid('payment_batch_id').references(() => paymentBatches.id, {
+      onDelete: 'restrict',
+    }),
     settlementType: settlementTypeEnum('settlement_type').notNull(),
     quantity: integer('quantity').notNull(),
     unitPriceSnapshotVnd: integer('unit_price_snapshot_vnd').notNull(),
@@ -360,6 +438,7 @@ export const orderLineSettlements = pgTable(
   },
   (table) => [
     index('order_line_settlements_bill_created_idx').on(table.billId, table.createdAt),
+    index('order_line_settlements_payment_batch_idx').on(table.paymentBatchId),
     index('order_line_settlements_line_status_idx').on(table.orderLineId, table.status),
     check('order_line_settlements_quantity_positive_check', sql`${table.quantity} > 0`),
     check(
@@ -449,5 +528,7 @@ export type CatalogItem = typeof catalogItems.$inferSelect;
 export type Bill = typeof bills.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderLine = typeof orderLines.$inferSelect;
+export type PaymentBatch = typeof paymentBatches.$inferSelect;
+export type CourtRentalCharge = typeof courtRentalCharges.$inferSelect;
 export type OrderLineSettlement = typeof orderLineSettlements.$inferSelect;
 export type ServiceRequest = typeof serviceRequests.$inferSelect;

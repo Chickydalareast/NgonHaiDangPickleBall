@@ -28,7 +28,8 @@
     "bill-projection:verify:db": "tsx src/public-bill/verify.ts",
     "custom-charges:verify:db": "tsx src/custom-charge/verify.ts",
     "settlements:verify:db": "tsx src/settlement/verify.ts",
-    "hardening:verify:db": "tsx src/hardening/verify.ts"
+    "hardening:verify:db": "tsx src/hardening/verify.ts",
+    "checkout:verify:db": "tsx src/checkout/verify.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.0.2",

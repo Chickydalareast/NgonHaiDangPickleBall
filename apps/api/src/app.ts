@@ -5,6 +5,10 @@ import fastifyCookie from '@fastify/cookie';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
 
 import { createRequireAdmin } from './admin/admin-auth-guard.js';
+import { registerAdminAlertRoutes } from './admin/admin-alert-routes.js';
+import type { AdminAlertService } from './admin/admin-alert-service.js';
+import { registerAdminCheckoutRoutes } from './checkout/admin-checkout-routes.js';
+import type { AdminCheckoutService } from './checkout/admin-checkout-service.js';
 import { registerAdminCatalogRoutes } from './catalog/admin-catalog-routes.js';
 import { registerAdminCustomChargeRoutes } from './custom-charge/admin-custom-charge-routes.js';
 import type { AdminCustomChargeService } from './custom-charge/admin-custom-charge-service.js';
@@ -46,8 +50,10 @@ export interface HealthResponse {
 }
 
 export interface AppDependencies {
+  adminAlertService?: AdminAlertService;
   adminAuthService?: AdminAuthService;
   adminCatalogService?: AdminCatalogService;
+  adminCheckoutService?: AdminCheckoutService;
   adminCustomChargeService?: AdminCustomChargeService;
   adminBillCompletionService?: AdminBillCompletionService;
   adminCookieSecure?: boolean;
@@ -119,8 +125,10 @@ export function buildApp(
   }
 
   if (
-    (dependencies.adminBillCompletionService ||
+    (dependencies.adminAlertService ||
+      dependencies.adminBillCompletionService ||
       dependencies.adminCatalogService ||
+      dependencies.adminCheckoutService ||
       dependencies.adminCustomChargeService ||
       dependencies.adminDashboardRepository ||
       dependencies.adminOrderOperationsService ||
@@ -146,6 +154,13 @@ export function buildApp(
       secureCookie: dependencies.adminCookieSecure ?? false,
     });
 
+    if (dependencies.adminAlertService) {
+      registerAdminAlertRoutes(app, {
+        service: dependencies.adminAlertService,
+        requireAdmin,
+      });
+    }
+
     if (dependencies.adminBillCompletionService) {
       registerAdminBillCompletionRoutes(app, {
         service: dependencies.adminBillCompletionService,
@@ -156,6 +171,13 @@ export function buildApp(
     if (dependencies.adminCatalogService) {
       registerAdminCatalogRoutes(app, {
         service: dependencies.adminCatalogService,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminCheckoutService) {
+      registerAdminCheckoutRoutes(app, {
+        service: dependencies.adminCheckoutService,
         requireAdmin,
       });
     }

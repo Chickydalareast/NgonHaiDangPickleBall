@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 
 import {
   adminBillDetailResponseSchema,
+  adminDashboardResponseSchema,
   adminServicePointsResponseSchema,
   authSessionResponseSchema,
   createOrderResponseSchema,
@@ -88,6 +89,39 @@ async function main(): Promise<void> {
     const empty = publicCurrentBillResponseSchema.parse(await emptyResponse.json());
     assert.equal(empty.bill, null);
 
+    const openBillResponse = await fetch(
+      `${baseUrl}/api/admin/service-points/${encodeURIComponent(court.id)}/open-bill`,
+      {
+        method: 'POST',
+        headers: { Accept: 'application/json', Cookie: cookie },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    assert.equal(openBillResponse.status, 200);
+    const emptyBill = adminBillDetailResponseSchema.parse(await openBillResponse.json());
+    billId = emptyBill.bill.id;
+
+    const emptyDashboardResponse = await fetch(`${baseUrl}/api/admin/dashboard`, {
+      headers: { Accept: 'application/json', Cookie: cookie },
+      signal: AbortSignal.timeout(15_000),
+    });
+    assert.equal(emptyDashboardResponse.status, 200);
+    const emptyDashboard = adminDashboardResponseSchema.parse(await emptyDashboardResponse.json());
+    const emptyDashboardCourt = emptyDashboard.servicePoints.find((entry) => entry.id === court.id);
+    assert.equal(emptyDashboardCourt?.billLifecycleState, 'OPEN_EMPTY');
+    assert.equal(emptyDashboardCourt?.openBill?.id, billId);
+
+    const hiddenEmptyResponse = await fetch(
+      `${baseUrl}/api/public/service-points/${court.slug}/bill`,
+      {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    assert.equal(hiddenEmptyResponse.status, 200);
+    const hiddenEmpty = publicCurrentBillResponseSchema.parse(await hiddenEmptyResponse.json());
+    assert.equal(hiddenEmpty.bill, null);
+
     const contextResponse = await fetch(
       `${baseUrl}/api/public/service-points/${court.slug}/context`,
       { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) },
@@ -96,6 +130,70 @@ async function main(): Promise<void> {
     const context = publicServicePointContextSchema.parse(await contextResponse.json());
     const item = context.categories.flatMap((category) => category.items)[0];
     assert.ok(item);
+
+    const cancelledOrderResponse = await fetch(
+      `${baseUrl}/api/public/service-points/${court.slug}/orders`,
+      {
+        method: 'POST',
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idempotencyKey: randomUUID(),
+          items: [{ catalogItemId: item.id, quantity: 1 }],
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    assert.equal(cancelledOrderResponse.status, 201);
+    const cancelledOrder = createOrderResponseSchema.parse(await cancelledOrderResponse.json());
+    assert.equal(cancelledOrder.bill.id, billId);
+
+    const cancelResponse = await fetch(
+      `${baseUrl}/api/admin/orders/${encodeURIComponent(cancelledOrder.order.id)}/status`,
+      {
+        method: 'PATCH',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Cookie: cookie,
+        },
+        body: JSON.stringify({
+          status: 'CANCELLED',
+          reason: 'Verify cancelled activity retention',
+        }),
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    assert.equal(cancelResponse.status, 200);
+    adminBillDetailResponseSchema.parse(await cancelResponse.json());
+
+    const cancelledDashboardResponse = await fetch(`${baseUrl}/api/admin/dashboard`, {
+      headers: { Accept: 'application/json', Cookie: cookie },
+      signal: AbortSignal.timeout(15_000),
+    });
+    assert.equal(cancelledDashboardResponse.status, 200);
+    const cancelledDashboard = adminDashboardResponseSchema.parse(
+      await cancelledDashboardResponse.json(),
+    );
+    assert.equal(
+      cancelledDashboard.servicePoints.find((entry) => entry.id === court.id)?.billLifecycleState,
+      'OPEN_ACTIVE',
+    );
+
+    const cancelledPublicResponse = await fetch(
+      `${baseUrl}/api/public/service-points/${court.slug}/bill`,
+      {
+        headers: { Accept: 'application/json' },
+        signal: AbortSignal.timeout(15_000),
+      },
+    );
+    assert.equal(cancelledPublicResponse.status, 200);
+    const cancelledPublic = publicCurrentBillResponseSchema.parse(
+      await cancelledPublicResponse.json(),
+    );
+    assert.equal(cancelledPublic.bill?.id, billId);
+    assert.equal(cancelledPublic.orders.length, 1);
+    assert.equal(cancelledPublic.orders[0]?.status, 'CANCELLED');
+    assert.equal(cancelledPublic.summary.grossTotalVnd, 0);
 
     for (const quantity of [3, 2]) {
       const orderResponse: Response = await fetch(
@@ -112,7 +210,6 @@ async function main(): Promise<void> {
       );
       assert.equal(orderResponse.status, 201);
       const created = createOrderResponseSchema.parse(await orderResponse.json());
-      billId ??= created.bill.id;
       assert.equal(created.bill.id, billId);
     }
 
@@ -123,13 +220,13 @@ async function main(): Promise<void> {
     assert.equal(publicResponse.status, 200);
     const publicBill = publicCurrentBillResponseSchema.parse(await publicResponse.json());
     assert.equal(publicBill.bill?.id, billId);
-    assert.equal(publicBill.orders.length, 2);
+    assert.equal(publicBill.orders.length, 3);
     assert.equal(publicBill.summary.items.length, 1);
     assert.equal(publicBill.summary.items[0]?.orderedQuantity, 5);
     assert.equal(publicBill.summary.grossTotalVnd, item.priceVnd * 5);
     assert.equal(publicBill.summary.outstandingTotalVnd, publicBill.summary.grossTotalVnd);
 
-    const adminResponse = await fetch(`${baseUrl}/api/admin/bills/${encodeURIComponent(billId!)}`, {
+    const adminResponse = await fetch(`${baseUrl}/api/admin/bills/${encodeURIComponent(billId)}`, {
       headers: { Accept: 'application/json', Cookie: cookie },
       signal: AbortSignal.timeout(15_000),
     });
@@ -148,8 +245,11 @@ async function main(): Promise<void> {
     console.log(
       JSON.stringify(
         {
-          emptyCourtReturnsNullBill: true,
-          customerOrders: publicBill.orders.length,
+          noBillReturnsNullBill: true,
+          emptyOpenBillHiddenFromCustomer: true,
+          cancelledOnlyBillRemainsActive: true,
+          dashboardEmptyThenActive: true,
+          orderHistoryCount: publicBill.orders.length,
           combinedQuantity: publicBill.summary.items[0]?.orderedQuantity,
           grossTotalVnd: publicBill.summary.grossTotalVnd,
           adminAndPublicSummaryMatch: true,
@@ -161,14 +261,18 @@ async function main(): Promise<void> {
     );
   } finally {
     if (billId) {
-      const orderResult = await pool.query<{ id: string }>(
-        `SELECT id FROM orders WHERE bill_id = $1`,
+      await pool.query(
+        `
+          DELETE FROM activity_logs
+          WHERE entity_id = $1
+             OR entity_id IN (SELECT id FROM orders WHERE bill_id = $1)
+             OR entity_id IN (SELECT id FROM order_lines WHERE bill_id = $1)
+        `,
         [billId],
       );
-      const orderIds = orderResult.rows.map((row) => row.id);
-      if (orderIds.length > 0) {
-        await pool.query(`DELETE FROM activity_logs WHERE entity_id = ANY($1::uuid[])`, [orderIds]);
-      }
+      await pool.query(`DELETE FROM order_line_settlements WHERE bill_id = $1`, [billId]);
+      await pool.query(`DELETE FROM court_rental_charges WHERE bill_id = $1`, [billId]);
+      await pool.query(`DELETE FROM payment_batches WHERE bill_id = $1`, [billId]);
       await pool.query(`DELETE FROM order_lines WHERE bill_id = $1`, [billId]);
       await pool.query(`DELETE FROM orders WHERE bill_id = $1`, [billId]);
       await pool.query(`DELETE FROM bills WHERE id = $1`, [billId]);

@@ -242,13 +242,21 @@ async function main(): Promise<void> {
           subtotal_vnd,
           total_vnd
         )
-        VALUES ($1, $2, 'OPEN', 125000, 125000)
+        VALUES ($1, $2, 'OPEN', 0, 0)
         RETURNING id
       `,
       [venueId, servicePointId],
     );
     const billId = billResult.rows[0]?.id;
     assert.ok(billId);
+
+    const emptyDashboard = await dashboardRepository.read();
+    const emptyCourt = emptyDashboard.servicePoints.find(
+      (servicePoint) => servicePoint.id === servicePointId,
+    );
+    assert.ok(emptyCourt);
+    assert.equal(emptyCourt.billLifecycleState, 'OPEN_EMPTY');
+    assert.equal(emptyCourt.openBill?.totalVnd, 0);
 
     await pool.query(
       `
@@ -265,6 +273,50 @@ async function main(): Promise<void> {
           ($1, $2, $3, $5, 'PENDING', 75000)
       `,
       [venueId, servicePointId, billId, randomUUID(), randomUUID()],
+    );
+    await pool.query(
+      `
+        INSERT INTO order_lines (
+          order_id,
+          bill_id,
+          line_kind,
+          catalog_item_id,
+          item_name_snapshot,
+          unit_name_snapshot,
+          image_public_id_snapshot,
+          unit_price_snapshot_vnd,
+          quantity,
+          duration_minutes,
+          billing_interval_minutes,
+          line_total_vnd,
+          status
+        )
+        SELECT
+          orders.id,
+          orders.bill_id,
+          'MANUAL_PRODUCT',
+          NULL,
+          'Dashboard activity verification',
+          'món',
+          NULL,
+          orders.total_vnd,
+          1,
+          NULL,
+          NULL,
+          orders.total_vnd,
+          'ACTIVE'
+        FROM orders
+        WHERE orders.bill_id = $1
+      `,
+      [billId],
+    );
+    await pool.query(
+      `
+        UPDATE bills
+        SET subtotal_vnd = 125000, total_vnd = 125000, updated_at = now()
+        WHERE id = $1
+      `,
+      [billId],
     );
     await pool.query(
       `
@@ -286,6 +338,7 @@ async function main(): Promise<void> {
     );
 
     assert.ok(verificationCourt);
+    assert.equal(verificationCourt.billLifecycleState, 'OPEN_ACTIVE');
     assert.equal(verificationCourt.openBill?.totalVnd, 125_000);
     assert.equal(verificationCourt.pendingOrderCount, 2);
     assert.equal(verificationCourt.hasPendingServiceRequest, true);
@@ -297,6 +350,8 @@ async function main(): Promise<void> {
           adminId,
           dashboardServicePointId: servicePointId,
           pendingOrderCount: verificationCourt.pendingOrderCount,
+          emptyBillRemainsIdle: emptyCourt.billLifecycleState === 'OPEN_EMPTY',
+          billWithLineBecomesActive: verificationCourt.billLifecycleState === 'OPEN_ACTIVE',
           sessionHashStored: true,
           username: seedEnvironment.ADMIN_SEED_USERNAME,
         },
@@ -309,6 +364,10 @@ async function main(): Promise<void> {
       await pool.query(`DELETE FROM service_requests WHERE service_point_id = $1`, [
         servicePointId,
       ]);
+      await pool.query(
+        `DELETE FROM order_lines WHERE order_id IN (SELECT id FROM orders WHERE service_point_id = $1)`,
+        [servicePointId],
+      );
       await pool.query(`DELETE FROM orders WHERE service_point_id = $1`, [servicePointId]);
       await pool.query(`DELETE FROM bills WHERE service_point_id = $1`, [servicePointId]);
       await pool.query(`DELETE FROM service_points WHERE id = $1`, [servicePointId]);

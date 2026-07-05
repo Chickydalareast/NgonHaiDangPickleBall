@@ -29,6 +29,13 @@
       "when": 1783267200002,
       "tag": "0003_partial_settlements",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1783267200003,
+      "tag": "0004_checkout_court_rental",
+      "breakpoints": true
     }
   ]
 }

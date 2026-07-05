@@ -17,10 +17,12 @@ const eventTypes: AdminRealtimeEvent['type'][] = [
   'order.accepted',
   'order.served',
   'order.cancelled',
+  'order.alert-acknowledged',
   'bill.updated',
   'bill.completed',
   'service-request.created',
   'service-request.resolved',
+  'service-request.alert-acknowledged',
 ];
 
 export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {
@@ -39,6 +41,7 @@ export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {
       if (!disposed) {
         setStatus('connected');
         void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+        void queryClient.invalidateQueries({ queryKey: ['admin', 'alerts'] });
       }
     };
 
@@ -56,6 +59,7 @@ export function useAdminRealtime(enabled: boolean): AdminRealtimeStatus {
       }
 
       void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['admin', 'alerts'] });
       if ('billId' in parsed) {
         void queryClient.invalidateQueries({ queryKey: ['admin', 'bill', parsed.billId] });
       }

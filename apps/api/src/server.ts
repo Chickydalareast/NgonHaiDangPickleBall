@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 import { config as loadDotenv } from 'dotenv';
 
+import { createAdminAlertService } from './admin/admin-alert-service.js';
 import { createAdminAuthService } from './admin/admin-auth-service.js';
 import { createAdminBillCompletionService } from './admin/admin-bill-completion-service.js';
 import { createAdminDashboardRepository } from './admin/admin-dashboard-repository.js';
@@ -12,6 +13,7 @@ import { createAdminServiceRequestService } from './admin/admin-service-request-
 import { createAdminCatalogService } from './catalog/admin-catalog-service.js';
 import { createCatalogMediaService } from './catalog/cloudinary-catalog-media.js';
 import { createAdminCustomChargeService } from './custom-charge/admin-custom-charge-service.js';
+import { createAdminCheckoutService } from './checkout/admin-checkout-service.js';
 import { buildApp } from './app.js';
 import { readCloudinaryEnvironment } from './config/cloudinary-environment.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
@@ -63,8 +65,14 @@ const app = buildApp(
     },
   },
   {
+    adminAlertService: createAdminAlertService(database.pool, adminRealtimeHub),
     adminAuthService,
     adminCatalogService: createAdminCatalogService(database.pool, catalogMediaService),
+    adminCheckoutService: createAdminCheckoutService(
+      database.pool,
+      (billId) => adminOrderOperationsService.readBill(billId),
+      adminRealtimeHub,
+    ),
     adminCustomChargeService: createAdminCustomChargeService(
       database.pool,
       (billId) => adminOrderOperationsService.readBill(billId),
