@@ -36,6 +36,7 @@ interface BillRow extends QueryResultRow {
   status: 'OPEN';
   opened_at: Date;
   updated_at: Date;
+  has_activity: boolean;
 }
 
 interface OrderRow extends QueryResultRow {
@@ -113,7 +114,16 @@ async function readSnapshot(
 
   const billResult = await client.query<BillRow>(
     `
-      SELECT id, status, opened_at, updated_at
+      SELECT
+        bills.id,
+        bills.status,
+        bills.opened_at,
+        bills.updated_at,
+        EXISTS (
+          SELECT 1
+          FROM order_lines
+          WHERE order_lines.bill_id = bills.id
+        ) AS has_activity
       FROM bills
       WHERE service_point_id = $1 AND status = 'OPEN'
       LIMIT 1
@@ -122,7 +132,7 @@ async function readSnapshot(
   );
   const bill = billResult.rows[0];
 
-  if (!bill) {
+  if (!bill?.has_activity) {
     return publicCurrentBillResponseSchema.parse({
       generatedAt: new Date().toISOString(),
       venue: {

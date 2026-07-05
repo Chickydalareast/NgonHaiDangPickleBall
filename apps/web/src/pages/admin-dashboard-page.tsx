@@ -7,9 +7,10 @@ import {
   getAdminDashboard,
   getAdminSession,
   logoutAdmin,
+  openAdminBillForServicePoint,
   resolveAdminServiceRequest,
 } from '../lib/admin-api';
-import { useAdminRealtime } from '../lib/admin-realtime';
+import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
 
 const moneyFormatter = new Intl.NumberFormat('vi-VN', {
   style: 'currency',
@@ -30,7 +31,7 @@ export function AdminDashboardPage() {
     retry: false,
     staleTime: 60_000,
   });
-  const realtimeStatus = useAdminRealtime(sessionQuery.isSuccess);
+  const { realtimeStatus } = useAdminAlertRuntime();
   const dashboardQuery = useQuery({
     queryKey: ['admin', 'dashboard'],
     queryFn: getAdminDashboard,
@@ -46,6 +47,14 @@ export function AdminDashboardPage() {
       void navigate('/admin/login', { replace: true });
     },
   });
+  const openBillMutation = useMutation({
+    mutationFn: openAdminBillForServicePoint,
+    async onSuccess(detail) {
+      await queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
+      void navigate(`/admin/bills/${detail.bill.id}`);
+    },
+  });
+
   const resolveServiceRequestMutation = useMutation({
     mutationFn: resolveAdminServiceRequest,
     onSuccess() {
@@ -136,6 +145,12 @@ export function AdminDashboardPage() {
               >
                 Quản lý catalog
               </Link>
+              <Link
+                to="/admin/service-points"
+                className="rounded-xl border border-line px-4 py-3 font-black text-ink"
+              >
+                Sân và QR
+              </Link>
               <button
                 type="button"
                 disabled={logoutMutation.isPending}
@@ -158,11 +173,12 @@ export function AdminDashboardPage() {
 
         <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {servicePoints.map((servicePoint) => {
+            const isOperationallyActive = servicePoint.billLifecycleState === 'OPEN_ACTIVE';
             const courtState =
               servicePoint.status === 'INACTIVE'
                 ? 'Đang tắt'
-                : servicePoint.openBill
-                  ? 'Đang có bill'
+                : isOperationallyActive
+                  ? 'Đang hoạt động'
                   : 'Đang rảnh';
 
             return (
@@ -182,7 +198,7 @@ export function AdminDashboardPage() {
                     className={`rounded-full px-3 py-1 text-xs font-black ${
                       servicePoint.status === 'INACTIVE'
                         ? 'bg-neutral-soft text-muted'
-                        : servicePoint.openBill
+                        : isOperationallyActive
                           ? 'bg-danger-soft text-danger'
                           : 'bg-success-soft text-success'
                     }`}
@@ -211,10 +227,29 @@ export function AdminDashboardPage() {
                 {servicePoint.openBill ? (
                   <Link
                     to={`/admin/bills/${servicePoint.openBill.id}`}
-                    className="mt-4 flex w-full justify-center rounded-xl bg-brand px-4 py-3 text-sm font-black text-white"
+                    className={`mt-4 flex w-full justify-center rounded-xl px-4 py-3 text-sm font-black ${
+                      isOperationallyActive
+                        ? 'bg-brand text-white'
+                        : 'border border-brand text-brand'
+                    }`}
                   >
-                    Mở bill và xử lý order
+                    {isOperationallyActive
+                      ? 'Mở bill và xử lý order'
+                      : 'Thêm phí sân hoặc sản phẩm'}
                   </Link>
+                ) : servicePoint.status === 'ACTIVE' ? (
+                  <button
+                    type="button"
+                    disabled={
+                      openBillMutation.isPending && openBillMutation.variables === servicePoint.id
+                    }
+                    onClick={() => openBillMutation.mutate(servicePoint.id)}
+                    className="mt-4 flex w-full justify-center rounded-xl border border-brand px-4 py-3 text-sm font-black text-brand disabled:opacity-50"
+                  >
+                    {openBillMutation.isPending && openBillMutation.variables === servicePoint.id
+                      ? 'Đang mở bill…'
+                      : 'Mở bill để thêm phí sân'}
+                  </button>
                 ) : null}
 
                 {servicePoint.pendingServiceRequest ? (

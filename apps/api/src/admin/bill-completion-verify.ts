@@ -111,27 +111,6 @@ async function main(): Promise<void> {
         }),
         (error: unknown) =>
           error instanceof AdminBillCompletionDomainError &&
-          error.code === 'BILL_HAS_UNRESOLVED_ORDERS',
-      );
-
-      await operations.updateOrderStatus({
-        adminUserId: admin.id,
-        orderId: firstOrder.order.id,
-        request: { status: 'ACCEPTED' },
-      });
-      await operations.updateOrderStatus({
-        adminUserId: admin.id,
-        orderId: firstOrder.order.id,
-        request: { status: 'SERVED' },
-      });
-
-      await assert.rejects(
-        completion.completeBill({
-          adminUserId: admin.id,
-          billId: firstOrder.bill.id,
-        }),
-        (error: unknown) =>
-          error instanceof AdminBillCompletionDomainError &&
           error.code === 'BILL_HAS_OUTSTANDING_SETTLEMENTS',
       );
 
@@ -229,6 +208,8 @@ async function main(): Promise<void> {
             newBillId: secondOrder.bill.id,
             newBillCreated: secondOrder.bill.id !== firstOrder.bill.id,
             outstandingCompletionBlocked: true,
+            pendingOrderSettled: true,
+            pendingOrderCompleted: true,
             fullySettledBeforeCompletion: true,
             eventPublished: true,
           },

@@ -1,5 +1,6 @@
 import {
   adminBillCompletionApiErrorSchema,
+  completeAdminBillRequestSchema,
   completeAdminBillResponseSchema,
 } from '@nhdp/contracts';
 import type { FastifyInstance, FastifyReply, preHandlerAsyncHookHandler } from 'fastify';
@@ -20,9 +21,9 @@ const identifierPattern =
 const statusByErrorCode: Record<AdminBillCompletionErrorCode, number> = {
   ADMIN_BILL_NOT_FOUND: 404,
   ADMIN_BILL_NOT_OPEN: 409,
-  BILL_HAS_UNRESOLVED_ORDERS: 409,
   BILL_HAS_OUTSTANDING_SETTLEMENTS: 409,
   BILL_TOTAL_TOO_LARGE: 422,
+  BILL_REVISION_STALE: 409,
 };
 
 export interface AdminBillCompletionRouteOptions {
@@ -62,11 +63,9 @@ export function registerAdminBillCompletionRoutes(
     async (request, reply) => {
       reply.header('Cache-Control', 'no-store');
 
-      if (
-        request.validationError ||
-        !request.params.billId ||
-        (request.body !== undefined && request.body !== null)
-      ) {
+      const parsed = completeAdminBillRequestSchema.safeParse(request.body);
+
+      if (request.validationError || !request.params.billId || !parsed.success) {
         return sendInvalidRequest(reply);
       }
 
@@ -78,6 +77,7 @@ export function registerAdminBillCompletionRoutes(
         const result = await options.service.completeBill({
           adminUserId: request.adminSession.admin.id,
           billId: request.params.billId,
+          request: parsed.data,
         });
 
         return completeAdminBillResponseSchema.parse(result);

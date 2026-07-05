@@ -1,12 +1,15 @@
 import { Navigate, Route, Routes } from 'react-router';
 
 import { CartProvider } from './cart/cart-context';
+import { AdminAlertProvider } from './components/admin-alert-runtime';
 import { CustomerCartPage } from './pages/customer-cart-page';
 import { CustomerMenuPage } from './pages/customer-menu-page';
+import { CustomerCurrentBillPage } from './pages/customer-current-bill-page';
 import { AdminBillPage } from './pages/admin-bill-page';
 import { AdminCatalogPage } from './pages/admin-catalog-page';
 import { AdminDashboardPage } from './pages/admin-dashboard-page';
 import { AdminLoginPage } from './pages/admin-login-page';
+import { AdminServicePointsPage } from './pages/admin-service-points-page';
 import { OrderSuccessPage } from './pages/order-success-page';
 
 function NotFoundPage() {
@@ -29,17 +32,21 @@ function NotFoundPage() {
 export function App() {
   return (
     <CartProvider>
-      <Routes>
-        <Route path="/" element={<Navigate to="/s/san-01" replace />} />
-        <Route path="/s/:slug" element={<CustomerMenuPage />} />
-        <Route path="/s/:slug/cart" element={<CustomerCartPage />} />
-        <Route path="/s/:slug/order-success" element={<OrderSuccessPage />} />
-        <Route path="/admin/login" element={<AdminLoginPage />} />
-        <Route path="/admin" element={<AdminDashboardPage />} />
-        <Route path="/admin/bills/:billId" element={<AdminBillPage />} />
-        <Route path="/admin/catalog" element={<AdminCatalogPage />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
+      <AdminAlertProvider>
+        <Routes>
+          <Route path="/" element={<Navigate to="/s/san-01" replace />} />
+          <Route path="/s/:slug" element={<CustomerMenuPage />} />
+          <Route path="/s/:slug/cart" element={<CustomerCartPage />} />
+          <Route path="/s/:slug/bill" element={<CustomerCurrentBillPage />} />
+          <Route path="/s/:slug/order-success" element={<OrderSuccessPage />} />
+          <Route path="/admin/login" element={<AdminLoginPage />} />
+          <Route path="/admin" element={<AdminDashboardPage />} />
+          <Route path="/admin/bills/:billId" element={<AdminBillPage />} />
+          <Route path="/admin/catalog" element={<AdminCatalogPage />} />
+          <Route path="/admin/service-points" element={<AdminServicePointsPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </AdminAlertProvider>
     </CartProvider>
   );
 }

@@ -130,6 +130,21 @@ export function CustomerMenuPage() {
             trước khi tạo order.
           </div>
 
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            <Link
+              to={`/s/${slug}/bill`}
+              className="rounded-xl border border-brand px-4 py-3 text-center text-sm font-black text-brand"
+            >
+              Xem bill hiện tại
+            </Link>
+            <Link
+              to={`/s/${slug}/cart`}
+              className="rounded-xl border border-line px-4 py-3 text-center text-sm font-black text-ink"
+            >
+              Mở giỏ hàng
+            </Link>
+          </div>
+
           <CustomerCallStaff slug={slug} />
         </div>
       </header>

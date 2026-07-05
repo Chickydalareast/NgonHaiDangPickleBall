@@ -47,7 +47,24 @@ async function jsonRequest(
   });
 }
 
-async function readNamedEvent(response: Response, expectedType: string): Promise<unknown> {
+async function withTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error(message)), 15_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+function createEventReader(response: Response) {
   if (!response.body) {
     throw new Error('SSE response did not provide a body stream.');
   }
@@ -56,28 +73,79 @@ async function readNamedEvent(response: Response, expectedType: string): Promise
   const decoder = new TextDecoder();
   let buffer = '';
 
-  while (true) {
-    const chunk = await reader.read();
+  return {
+    async next(expectedType: string): Promise<unknown> {
+      while (true) {
+        while (buffer.includes('\n\n')) {
+          const boundary = buffer.indexOf('\n\n');
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const lines = block.split('\n');
+          const eventName = lines.find((line) => line.startsWith('event: '))?.slice(7);
+          const data = lines.find((line) => line.startsWith('data: '))?.slice(6);
 
-    if (chunk.done) {
-      throw new Error(`SSE connection closed before ${expectedType} was received.`);
-    }
+          if (eventName === expectedType && data) {
+            return JSON.parse(data) as unknown;
+          }
+        }
 
-    buffer += decoder.decode(chunk.value, { stream: true });
+        const chunk = await reader.read();
 
-    while (buffer.includes('\n\n')) {
-      const boundary = buffer.indexOf('\n\n');
-      const block = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const lines = block.split('\n');
-      const eventName = lines.find((line) => line.startsWith('event: '))?.slice(7);
-      const data = lines.find((line) => line.startsWith('data: '))?.slice(6);
+        if (chunk.done) {
+          throw new Error(`SSE connection closed before ${expectedType} was received.`);
+        }
 
-      if (eventName === expectedType && data) {
-        return JSON.parse(data) as unknown;
+        buffer += decoder.decode(chunk.value, { stream: true }).replaceAll('\r\n', '\n');
       }
-    }
-  }
+    },
+  };
+}
+
+async function cleanupCompletionServicePoint(pool: Pool, servicePointId: string): Promise<void> {
+  await pool.query(
+    `
+      DELETE FROM activity_logs
+      WHERE venue_id = (SELECT venue_id FROM service_points WHERE id = $1)
+        AND (
+          entity_id IN (SELECT id FROM bills WHERE service_point_id = $1)
+          OR entity_id IN (SELECT id FROM orders WHERE service_point_id = $1)
+          OR entity_id IN (
+            SELECT order_lines.id
+            FROM order_lines
+            INNER JOIN orders ON orders.id = order_lines.order_id
+            WHERE orders.service_point_id = $1
+          )
+          OR entity_id IN (
+            SELECT order_line_settlements.id
+            FROM order_line_settlements
+            INNER JOIN order_lines
+              ON order_lines.id = order_line_settlements.order_line_id
+            INNER JOIN orders ON orders.id = order_lines.order_id
+            WHERE orders.service_point_id = $1
+          )
+        )
+    `,
+    [servicePointId],
+  );
+  await pool.query(
+    `
+      DELETE FROM order_line_settlements
+      WHERE order_line_id IN (
+        SELECT order_lines.id
+        FROM order_lines
+        INNER JOIN orders ON orders.id = order_lines.order_id
+        WHERE orders.service_point_id = $1
+      )
+    `,
+    [servicePointId],
+  );
+  await pool.query(
+    `DELETE FROM order_lines WHERE order_id IN (SELECT id FROM orders WHERE service_point_id = $1)`,
+    [servicePointId],
+  );
+  await pool.query(`DELETE FROM orders WHERE service_point_id = $1`, [servicePointId]);
+  await pool.query(`DELETE FROM bills WHERE service_point_id = $1`, [servicePointId]);
+  await pool.query(`DELETE FROM service_points WHERE id = $1`, [servicePointId]);
 }
 
 async function main(): Promise<void> {
@@ -88,12 +156,24 @@ async function main(): Promise<void> {
   });
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const slug = `verify-completion-${suffix}`;
-  const abortController = new AbortController();
-  let streamTimeout: NodeJS.Timeout | null = null;
   let servicePointId: string | null = null;
   let tokenHash: string | null = null;
+  let staleFixturesRemoved = 0;
 
   try {
+    const staleServicePoints = await pool.query<{ id: string }>(
+      `
+        SELECT id
+        FROM service_points
+        WHERE slug LIKE 'verify-completion-%'
+      `,
+    );
+    staleFixturesRemoved = staleServicePoints.rowCount ?? 0;
+
+    for (const staleServicePoint of staleServicePoints.rows) {
+      await cleanupCompletionServicePoint(pool, staleServicePoint.id);
+    }
+
     const venue = (
       await pool.query<{ id: string }>(
         `SELECT id FROM venues WHERE slug = 'ngon-hai-dang-pickleball' LIMIT 1`,
@@ -169,46 +249,26 @@ async function main(): Promise<void> {
       'INVALID_ADMIN_BILL_COMPLETION_REQUEST',
     );
 
-    const blocked = await jsonRequest(`/api/admin/bills/${firstOrder.bill.id}/complete`, {
-      method: 'POST',
+    const pendingDetailResponse = await jsonRequest(`/api/admin/bills/${firstOrder.bill.id}`, {
       cookie,
     });
-    assert.equal(blocked.status, 409);
+    assert.equal(pendingDetailResponse.status, 200);
+    const pendingDetail = adminBillDetailResponseSchema.parse(await pendingDetailResponse.json());
     assert.equal(
-      adminBillCompletionApiErrorSchema.parse(await blocked.json()).code,
-      'BILL_HAS_UNRESOLVED_ORDERS',
+      pendingDetail.orders.find((order) => order.id === firstOrder.order.id)?.status,
+      'PENDING',
     );
-
-    streamTimeout = setTimeout(() => abortController.abort(), 25_000);
-    const eventResponse = await fetch(`${baseUrl}/api/admin/events`, {
-      headers: {
-        Accept: 'text/event-stream',
-        Cookie: cookie,
-      },
-      signal: abortController.signal,
-    });
-    assert.equal(eventResponse.status, 200);
-    const eventPromise = readNamedEvent(eventResponse, 'bill.completed');
-
-    const acceptResponse = await jsonRequest(`/api/admin/orders/${firstOrder.order.id}/status`, {
-      method: 'PATCH',
-      cookie,
-      body: { status: 'ACCEPTED' },
-    });
-    assert.equal(acceptResponse.status, 200);
-
-    const serveResponse = await jsonRequest(`/api/admin/orders/${firstOrder.order.id}/status`, {
-      method: 'PATCH',
-      cookie,
-      body: { status: 'SERVED' },
-    });
-    assert.equal(serveResponse.status, 200);
+    const line = pendingDetail.orders
+      .flatMap((order) => order.lines)
+      .find((entry) => entry.catalogItemId === item.id);
+    assert.ok(line);
 
     const outstandingResponse = await jsonRequest(
       `/api/admin/bills/${firstOrder.bill.id}/complete`,
       {
         method: 'POST',
         cookie,
+        body: { revision: pendingDetail.bill.updatedAt },
       },
     );
     assert.equal(outstandingResponse.status, 409);
@@ -216,12 +276,6 @@ async function main(): Promise<void> {
       adminBillCompletionApiErrorSchema.parse(await outstandingResponse.json()).code,
       'BILL_HAS_OUTSTANDING_SETTLEMENTS',
     );
-
-    const servedDetail = adminBillDetailResponseSchema.parse(await serveResponse.json());
-    const line = servedDetail.orders
-      .flatMap((order) => order.lines)
-      .find((entry) => entry.catalogItemId === item.id);
-    assert.ok(line);
 
     const settlementResponse = await jsonRequest(`/api/admin/order-lines/${line.id}/settlements`, {
       method: 'POST',
@@ -233,42 +287,62 @@ async function main(): Promise<void> {
       },
     });
     assert.equal(settlementResponse.status, 200);
-    assert.equal(
-      adminBillDetailResponseSchema.parse(await settlementResponse.json()).summary
-        .outstandingTotalVnd,
-      0,
-    );
+    const settledDetail = adminBillDetailResponseSchema.parse(await settlementResponse.json());
+    assert.equal(settledDetail.summary.outstandingTotalVnd, 0);
 
-    const completeResponse = await jsonRequest(`/api/admin/bills/${firstOrder.bill.id}/complete`, {
-      method: 'POST',
-      cookie,
-    });
-    assert.equal(completeResponse.status, 200);
-    const completed = completeAdminBillResponseSchema.parse(await completeResponse.json());
-    assert.equal(completed.totalVnd, item.price_vnd * 2);
+    const eventAbortController = new AbortController();
+    let completedEvent: ReturnType<typeof adminRealtimeEventSchema.parse> | null = null;
+    let eventPromise: Promise<unknown> | null = null;
 
-    const completedEvent = adminRealtimeEventSchema.parse(
-      await Promise.race([
-        eventPromise,
-        new Promise<never>((_resolve, reject) => {
-          setTimeout(
-            () => reject(new Error('Timed out waiting for bill.completed SSE event.')),
-            15_000,
-          );
-        }),
-      ]),
-    );
-    assert.deepEqual(completedEvent, {
-      type: 'bill.completed',
-      servicePointId,
-      billId: firstOrder.bill.id,
-    });
+    try {
+      const eventResponse = await fetch(`${baseUrl}/api/admin/events`, {
+        headers: {
+          Accept: 'text/event-stream',
+          Cookie: cookie,
+        },
+        signal: eventAbortController.signal,
+      });
+      assert.equal(eventResponse.status, 200);
+      const eventReader = createEventReader(eventResponse);
+      eventPromise = withTimeout(
+        eventReader.next('bill.completed'),
+        'Timed out waiting for bill.completed SSE event.',
+      );
 
-    if (streamTimeout) {
-      clearTimeout(streamTimeout);
-      streamTimeout = null;
+      const completeResponse = await jsonRequest(
+        `/api/admin/bills/${firstOrder.bill.id}/complete`,
+        {
+          method: 'POST',
+          cookie,
+          body: { revision: settledDetail.bill.updatedAt },
+        },
+      );
+      assert.equal(completeResponse.status, 200);
+      const completed = completeAdminBillResponseSchema.parse(await completeResponse.json());
+      assert.equal(completed.totalVnd, item.price_vnd * 2);
+
+      completedEvent = adminRealtimeEventSchema.parse(await eventPromise);
+      assert.deepEqual(completedEvent, {
+        type: 'bill.completed',
+        servicePointId,
+        billId: firstOrder.bill.id,
+      });
+    } finally {
+      eventAbortController.abort();
+
+      if (eventPromise) {
+        await eventPromise.catch((error: unknown) => {
+          if (
+            !(error instanceof Error) ||
+            (error.name !== 'AbortError' && error.name !== 'TimeoutError')
+          ) {
+            throw error;
+          }
+        });
+      }
     }
-    abortController.abort();
+
+    assert.ok(completedEvent);
 
     const detailResponse = await jsonRequest(`/api/admin/bills/${firstOrder.bill.id}`, {
       cookie,
@@ -331,73 +405,28 @@ async function main(): Promise<void> {
       JSON.stringify(
         {
           completedBillId: firstOrder.bill.id,
-          completedTotalVnd: completed.totalVnd,
+          completedTotalVnd: item.price_vnd * 2,
           courtFreeAfterCompletion: completedCourt?.openBill === null,
           newBillId: secondOrder.bill.id,
           newBillCreated: secondOrder.bill.id !== firstOrder.bill.id,
           outstandingCompletionBlocked: true,
+          pendingOrderSettled: true,
+          pendingOrderCompleted: true,
           fullySettledBeforeCompletion: true,
           sseEventType: completedEvent.type,
+          staleFixturesRemoved,
         },
         null,
         2,
       ),
     );
   } finally {
-    if (streamTimeout) {
-      clearTimeout(streamTimeout);
-    }
-    abortController.abort();
-
     if (tokenHash) {
       await pool.query(`DELETE FROM admin_sessions WHERE token_hash = $1`, [tokenHash]);
     }
 
     if (servicePointId) {
-      await pool.query(
-        `
-          DELETE FROM activity_logs
-          WHERE venue_id = (SELECT venue_id FROM service_points WHERE id = $1)
-            AND (
-              entity_id IN (SELECT id FROM bills WHERE service_point_id = $1)
-              OR entity_id IN (SELECT id FROM orders WHERE service_point_id = $1)
-              OR entity_id IN (
-                SELECT order_lines.id
-                FROM order_lines
-                INNER JOIN orders ON orders.id = order_lines.order_id
-                WHERE orders.service_point_id = $1
-              )
-              OR entity_id IN (
-                SELECT order_line_settlements.id
-                FROM order_line_settlements
-                INNER JOIN order_lines
-                  ON order_lines.id = order_line_settlements.order_line_id
-                INNER JOIN orders ON orders.id = order_lines.order_id
-                WHERE orders.service_point_id = $1
-              )
-            )
-        `,
-        [servicePointId],
-      );
-      await pool.query(
-        `
-          DELETE FROM order_line_settlements
-          WHERE order_line_id IN (
-            SELECT order_lines.id
-            FROM order_lines
-            INNER JOIN orders ON orders.id = order_lines.order_id
-            WHERE orders.service_point_id = $1
-          )
-        `,
-        [servicePointId],
-      );
-      await pool.query(
-        `DELETE FROM order_lines WHERE order_id IN (SELECT id FROM orders WHERE service_point_id = $1)`,
-        [servicePointId],
-      );
-      await pool.query(`DELETE FROM orders WHERE service_point_id = $1`, [servicePointId]);
-      await pool.query(`DELETE FROM bills WHERE service_point_id = $1`, [servicePointId]);
-      await pool.query(`DELETE FROM service_points WHERE id = $1`, [servicePointId]);
+      await cleanupCompletionServicePoint(pool, servicePointId);
     }
 
     await pool.end();

@@ -16,6 +16,7 @@ interface DashboardRow extends QueryResultRow {
   open_bill_id: string | null;
   open_bill_total_vnd: number | null;
   open_bill_opened_at: Date | null;
+  open_bill_has_activity: boolean;
   pending_order_count: number;
   pending_service_request_id: string | null;
   pending_service_request_message: string | null;
@@ -37,6 +38,11 @@ export function createAdminDashboardRepository(pool: Pool): AdminDashboardReposi
           open_bill.id AS open_bill_id,
           open_bill.total_vnd AS open_bill_total_vnd,
           open_bill.opened_at AS open_bill_opened_at,
+          EXISTS (
+            SELECT 1
+            FROM order_lines
+            WHERE order_lines.bill_id = open_bill.id
+          ) AS open_bill_has_activity,
           COALESCE((
             SELECT COUNT(*)::integer
             FROM orders
@@ -76,6 +82,11 @@ export function createAdminDashboardRepository(pool: Pool): AdminDashboardReposi
           slug: row.slug,
           name: row.name,
           status: row.status,
+          billLifecycleState: !row.open_bill_id
+            ? 'NONE'
+            : row.open_bill_has_activity
+              ? 'OPEN_ACTIVE'
+              : 'OPEN_EMPTY',
           openBill:
             row.open_bill_id && row.open_bill_total_vnd !== null && row.open_bill_opened_at
               ? {

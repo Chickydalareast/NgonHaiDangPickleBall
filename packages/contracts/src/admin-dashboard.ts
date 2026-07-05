@@ -12,6 +12,7 @@ export const adminDashboardServicePointSchema = z
     slug: z.string().min(1).max(120),
     name: z.string().min(1).max(120),
     status: z.enum(['ACTIVE', 'INACTIVE']),
+    billLifecycleState: z.enum(['NONE', 'OPEN_EMPTY', 'OPEN_ACTIVE']),
     openBill: z
       .object({
         id: identifierSchema,

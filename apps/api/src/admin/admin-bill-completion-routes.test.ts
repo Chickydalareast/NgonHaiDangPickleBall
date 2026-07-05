@@ -99,6 +99,7 @@ void test('POST complete bill passes safe admin identity and returns typed respo
     method: 'POST',
     url: `/admin/bills/${billId}/complete`,
     headers: { cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}` },
+    payload: { revision: '2026-07-05T00:00:00.000Z' },
   });
 
   assert.equal(response.statusCode, 200);
@@ -106,7 +107,7 @@ void test('POST complete bill passes safe admin identity and returns typed respo
   assert.equal(completeAdminBillResponseSchema.parse(response.json()).status, 'COMPLETED');
 });
 
-void test('POST complete bill rejects request bodies', async (context) => {
+void test('POST complete bill rejects invalid request bodies', async (context) => {
   const app = buildApp(
     { logger: false },
     {
@@ -130,7 +131,7 @@ void test('POST complete bill rejects request bodies', async (context) => {
   );
 });
 
-void test('POST complete bill maps unresolved orders to HTTP 409', async (context) => {
+void test('POST complete bill maps outstanding settlements to HTTP 409', async (context) => {
   const app = buildApp(
     { logger: false },
     {
@@ -139,8 +140,8 @@ void test('POST complete bill maps unresolved orders to HTTP 409', async (contex
         completeBill: () =>
           Promise.reject(
             new AdminBillCompletionDomainError(
-              'BILL_HAS_UNRESOLVED_ORDERS',
-              'Bill còn order đang chờ hoặc chưa phục vụ.',
+              'BILL_HAS_OUTSTANDING_SETTLEMENTS',
+              'Bill còn line chưa được đánh dấu PAID hoặc WAIVED đầy đủ.',
             ),
           ),
       }),
@@ -152,11 +153,12 @@ void test('POST complete bill maps unresolved orders to HTTP 409', async (contex
     method: 'POST',
     url: `/admin/bills/${billId}/complete`,
     headers: { cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}` },
+    payload: { revision: '2026-07-05T00:00:00.000Z' },
   });
 
   assert.equal(response.statusCode, 409);
   assert.equal(
     adminBillCompletionApiErrorSchema.parse(response.json()).code,
-    'BILL_HAS_UNRESOLVED_ORDERS',
+    'BILL_HAS_OUTSTANDING_SETTLEMENTS',
   );
 });

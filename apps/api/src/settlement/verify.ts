@@ -345,13 +345,6 @@ async function main(): Promise<void> {
         request: { status: 'SERVED' },
       });
 
-      await assert.rejects(
-        billCompletion.completeBill({ adminUserId, billId: created.bill.id }),
-        (error: unknown) =>
-          error instanceof AdminBillCompletionDomainError &&
-          error.code === 'BILL_HAS_UNRESOLVED_ORDERS',
-      );
-
       const customOrder = customDetail.orders.find((order) =>
         order.lines.some((entry) => entry.id === customLine.id),
       );
