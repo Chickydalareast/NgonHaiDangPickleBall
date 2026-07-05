@@ -9,6 +9,7 @@ import { createDatabaseConnection } from '../db/client.js';
 import { runMigrations } from '../db/migrations.js';
 import { seedDatabase } from '../db/seed-service.js';
 import { createOrderService } from '../order/create-order-service.js';
+import { createAdminSettlementService } from '../settlement/admin-settlement-service.js';
 import {
   AdminBillCompletionDomainError,
   createAdminBillCompletionService,
@@ -86,6 +87,11 @@ async function main(): Promise<void> {
 
       const createService = createOrderService(database.pool, hub);
       const operations = createAdminOrderOperationsService(database.pool, hub);
+      const settlements = createAdminSettlementService(
+        database.pool,
+        (billId) => operations.readBill(billId),
+        hub,
+      );
       const completion = createAdminBillCompletionService(database.pool, hub);
       const dashboard = createAdminDashboardRepository(database.pool);
 
@@ -117,6 +123,33 @@ async function main(): Promise<void> {
         adminUserId: admin.id,
         orderId: firstOrder.order.id,
         request: { status: 'SERVED' },
+      });
+
+      await assert.rejects(
+        completion.completeBill({
+          adminUserId: admin.id,
+          billId: firstOrder.bill.id,
+        }),
+        (error: unknown) =>
+          error instanceof AdminBillCompletionDomainError &&
+          error.code === 'BILL_HAS_OUTSTANDING_SETTLEMENTS',
+      );
+
+      const detailBeforeSettlement = await operations.readBill(firstOrder.bill.id);
+      assert.ok(detailBeforeSettlement);
+      const line = detailBeforeSettlement.orders
+        .flatMap((order) => order.lines)
+        .find((entry) => entry.catalogItemId === item.id);
+      assert.ok(line);
+
+      await settlements.create({
+        adminUserId: admin.id,
+        lineId: line.id,
+        request: {
+          idempotencyKey: randomUUID(),
+          type: 'PAID',
+          quantity: 2,
+        },
       });
 
       const completed = await completion.completeBill({
@@ -195,6 +228,8 @@ async function main(): Promise<void> {
             courtFreeAfterCompletion: completedCourt?.openBill === null,
             newBillId: secondOrder.bill.id,
             newBillCreated: secondOrder.bill.id !== firstOrder.bill.id,
+            outstandingCompletionBlocked: true,
+            fullySettledBeforeCompletion: true,
             eventPublished: true,
           },
           null,

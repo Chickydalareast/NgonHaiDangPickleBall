@@ -15,6 +15,20 @@
       "when": 1783267200000,
       "tag": "0001_admin_username_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783267200001,
+      "tag": "0002_custom_charges",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1783267200002,
+      "tag": "0003_partial_settlements",
+      "breakpoints": true
     }
   ]
 }

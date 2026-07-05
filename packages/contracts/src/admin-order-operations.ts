@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+import { billProjectionSummarySchema } from './bill-projection.js';
+import { adminLineSettlementSchema, lineSettlementTotalsSchema } from './admin-settlements.js';
+
 const identifierSchema = z.string().uuid();
 const isoTimestampSchema = z.string().datetime({ offset: true });
 const nullableTimestampSchema = isoTimestampSchema.nullable();
@@ -7,18 +10,24 @@ const moneyVndSchema = z.number().int().nonnegative();
 
 export const adminOrderStatusSchema = z.enum(['PENDING', 'ACCEPTED', 'SERVED', 'CANCELLED']);
 export const adminOrderLineStatusSchema = z.enum(['ACTIVE', 'VOIDED']);
+export const adminOrderLineKindSchema = z.enum(['CATALOG', 'MANUAL_PRODUCT', 'MANUAL_TIME']);
 export const adminOrderSourceSchema = z.enum(['CUSTOMER', 'ADMIN']);
 
 export const adminBillOrderLineSchema = z
   .object({
     id: identifierSchema,
-    catalogItemId: identifierSchema,
+    lineKind: adminOrderLineKindSchema,
+    catalogItemId: identifierSchema.nullable(),
     itemName: z.string().min(1),
     unitName: z.string().min(1),
     imagePublicId: z.string().nullable(),
     unitPriceVnd: moneyVndSchema,
     quantity: z.number().int().positive(),
+    durationMinutes: z.number().int().positive().nullable(),
+    billingIntervalMinutes: z.number().int().positive().nullable(),
     lineTotalVnd: moneyVndSchema,
+    ...lineSettlementTotalsSchema.shape,
+    settlements: z.array(adminLineSettlementSchema),
     status: adminOrderLineStatusSchema,
     voidReason: z.string().nullable(),
     voidedAt: nullableTimestampSchema,
@@ -66,8 +75,10 @@ export const adminBillDetailResponseSchema = z
         subtotalVnd: moneyVndSchema,
         totalVnd: moneyVndSchema,
         openedAt: isoTimestampSchema,
+        updatedAt: isoTimestampSchema,
       })
       .strict(),
+    summary: billProjectionSummarySchema,
     orders: z.array(adminBillOrderSchema),
   })
   .strict();
@@ -116,6 +127,8 @@ export const adminOrderOperationApiErrorSchema = z
       'INVALID_ORDER_TRANSITION',
       'ORDER_LINE_NOT_EDITABLE',
       'ORDER_LINE_ALREADY_VOIDED',
+      'ORDER_LINE_HAS_ACTIVE_SETTLEMENTS',
+      'ORDER_HAS_ACTIVE_SETTLEMENTS',
       'ORDER_TOTAL_TOO_LARGE',
     ]),
     message: z.string().min(1),
@@ -124,6 +137,7 @@ export const adminOrderOperationApiErrorSchema = z
 
 export type AdminOrderStatus = z.infer<typeof adminOrderStatusSchema>;
 export type AdminOrderLineStatus = z.infer<typeof adminOrderLineStatusSchema>;
+export type AdminOrderLineKind = z.infer<typeof adminOrderLineKindSchema>;
 export type AdminOrderSource = z.infer<typeof adminOrderSourceSchema>;
 export type AdminBillOrderLine = z.infer<typeof adminBillOrderLineSchema>;
 export type AdminBillOrder = z.infer<typeof adminBillOrderSchema>;

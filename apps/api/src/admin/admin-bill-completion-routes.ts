@@ -21,6 +21,7 @@ const statusByErrorCode: Record<AdminBillCompletionErrorCode, number> = {
   ADMIN_BILL_NOT_FOUND: 404,
   ADMIN_BILL_NOT_OPEN: 409,
   BILL_HAS_UNRESOLVED_ORDERS: 409,
+  BILL_HAS_OUTSTANDING_SETTLEMENTS: 409,
   BILL_TOTAL_TOO_LARGE: 422,
 };
 

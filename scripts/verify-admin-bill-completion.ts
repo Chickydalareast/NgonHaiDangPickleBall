@@ -204,6 +204,41 @@ async function main(): Promise<void> {
     });
     assert.equal(serveResponse.status, 200);
 
+    const outstandingResponse = await jsonRequest(
+      `/api/admin/bills/${firstOrder.bill.id}/complete`,
+      {
+        method: 'POST',
+        cookie,
+      },
+    );
+    assert.equal(outstandingResponse.status, 409);
+    assert.equal(
+      adminBillCompletionApiErrorSchema.parse(await outstandingResponse.json()).code,
+      'BILL_HAS_OUTSTANDING_SETTLEMENTS',
+    );
+
+    const servedDetail = adminBillDetailResponseSchema.parse(await serveResponse.json());
+    const line = servedDetail.orders
+      .flatMap((order) => order.lines)
+      .find((entry) => entry.catalogItemId === item.id);
+    assert.ok(line);
+
+    const settlementResponse = await jsonRequest(`/api/admin/order-lines/${line.id}/settlements`, {
+      method: 'POST',
+      cookie,
+      body: {
+        idempotencyKey: randomUUID(),
+        type: 'PAID',
+        quantity: 2,
+      },
+    });
+    assert.equal(settlementResponse.status, 200);
+    assert.equal(
+      adminBillDetailResponseSchema.parse(await settlementResponse.json()).summary
+        .outstandingTotalVnd,
+      0,
+    );
+
     const completeResponse = await jsonRequest(`/api/admin/bills/${firstOrder.bill.id}/complete`, {
       method: 'POST',
       cookie,
@@ -300,6 +335,8 @@ async function main(): Promise<void> {
           courtFreeAfterCompletion: completedCourt?.openBill === null,
           newBillId: secondOrder.bill.id,
           newBillCreated: secondOrder.bill.id !== firstOrder.bill.id,
+          outstandingCompletionBlocked: true,
+          fullySettledBeforeCompletion: true,
           sseEventType: completedEvent.type,
         },
         null,
@@ -330,7 +367,27 @@ async function main(): Promise<void> {
                 INNER JOIN orders ON orders.id = order_lines.order_id
                 WHERE orders.service_point_id = $1
               )
+              OR entity_id IN (
+                SELECT order_line_settlements.id
+                FROM order_line_settlements
+                INNER JOIN order_lines
+                  ON order_lines.id = order_line_settlements.order_line_id
+                INNER JOIN orders ON orders.id = order_lines.order_id
+                WHERE orders.service_point_id = $1
+              )
             )
+        `,
+        [servicePointId],
+      );
+      await pool.query(
+        `
+          DELETE FROM order_line_settlements
+          WHERE order_line_id IN (
+            SELECT order_lines.id
+            FROM order_lines
+            INNER JOIN orders ON orders.id = order_lines.order_id
+            WHERE orders.service_point_id = $1
+          )
         `,
         [servicePointId],
       );

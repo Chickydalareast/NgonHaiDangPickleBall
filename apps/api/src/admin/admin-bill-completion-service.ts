@@ -13,6 +13,7 @@ export type AdminBillCompletionErrorCode =
   | 'ADMIN_BILL_NOT_FOUND'
   | 'ADMIN_BILL_NOT_OPEN'
   | 'BILL_HAS_UNRESOLVED_ORDERS'
+  | 'BILL_HAS_OUTSTANDING_SETTLEMENTS'
   | 'BILL_TOTAL_TOO_LARGE';
 
 export class AdminBillCompletionDomainError extends Error {
@@ -139,6 +140,39 @@ export function createAdminBillCompletionService(
           throw new AdminBillCompletionDomainError(
             'BILL_HAS_UNRESOLVED_ORDERS',
             'Bill còn order đang chờ hoặc chưa phục vụ.',
+          );
+        }
+
+        const outstandingResult = await client.query<CountRow>(
+          `
+            WITH allocations AS (
+              SELECT
+                order_lines.id,
+                order_lines.quantity,
+                COALESCE(
+                  SUM(order_line_settlements.quantity)
+                    FILTER (WHERE order_line_settlements.status = 'ACTIVE'),
+                  0
+                )::integer AS allocated_quantity
+              FROM order_lines
+              LEFT JOIN order_line_settlements
+                ON order_line_settlements.order_line_id = order_lines.id
+              WHERE order_lines.bill_id = $1
+                AND order_lines.status = 'ACTIVE'
+              GROUP BY order_lines.id, order_lines.quantity
+            )
+            SELECT COUNT(*)::text AS count
+            FROM allocations
+            WHERE allocated_quantity <> quantity
+          `,
+          [bill.id],
+        );
+        const outstandingCount = Number(outstandingResult.rows[0]?.count ?? 0);
+
+        if (outstandingCount > 0) {
+          throw new AdminBillCompletionDomainError(
+            'BILL_HAS_OUTSTANDING_SETTLEMENTS',
+            'Bill còn line chưa được đánh dấu PAID hoặc WAIVED đầy đủ.',
           );
         }
 

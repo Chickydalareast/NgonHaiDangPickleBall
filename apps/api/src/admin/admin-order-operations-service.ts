@@ -12,6 +12,8 @@ import {
 } from '@nhdp/contracts';
 import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
+import { buildBillProjection } from '../bill-projection/build-bill-projection.js';
+import { buildLineSettlementStateMap } from '../bill-projection/settlement-state.js';
 import { withTransaction } from '../db/transaction.js';
 import type { OrderCreatedEventPublisher } from '../order/create-order-service.js';
 
@@ -24,6 +26,8 @@ export type AdminOrderOperationErrorCode =
   | 'INVALID_ORDER_TRANSITION'
   | 'ORDER_LINE_NOT_EDITABLE'
   | 'ORDER_LINE_ALREADY_VOIDED'
+  | 'ORDER_LINE_HAS_ACTIVE_SETTLEMENTS'
+  | 'ORDER_HAS_ACTIVE_SETTLEMENTS'
   | 'ORDER_TOTAL_TOO_LARGE';
 
 export class AdminOrderOperationDomainError extends Error {
@@ -66,6 +70,7 @@ interface BillHeaderRow extends QueryResultRow {
   subtotal_vnd: number;
   total_vnd: number;
   opened_at: Date;
+  updated_at: Date;
   venue_id: string;
   venue_name: string;
   service_point_id: string;
@@ -90,16 +95,35 @@ interface BillOrderRow extends QueryResultRow {
 interface BillLineRow extends QueryResultRow {
   id: string;
   order_id: string;
-  catalog_item_id: string;
+  line_kind: 'CATALOG' | 'MANUAL_PRODUCT' | 'MANUAL_TIME';
+  catalog_item_id: string | null;
   item_name_snapshot: string;
   unit_name_snapshot: string;
   image_public_id_snapshot: string | null;
   unit_price_snapshot_vnd: number;
   quantity: number;
+  duration_minutes: number | null;
+  billing_interval_minutes: number | null;
   line_total_vnd: number;
   status: 'ACTIVE' | 'VOIDED';
   void_reason: string | null;
   voided_at: Date | null;
+  created_at: Date;
+}
+
+interface BillSettlementRow extends QueryResultRow {
+  id: string;
+  order_line_id: string;
+  settlement_type: 'PAID' | 'WAIVED';
+  quantity: number;
+  unit_price_snapshot_vnd: number;
+  amount_vnd: number;
+  reason: string | null;
+  status: 'ACTIVE' | 'REVERSED';
+  created_by_admin_user_id: string;
+  reversed_by_admin_user_id: string | null;
+  reversal_reason: string | null;
+  reversed_at: Date | null;
   created_at: Date;
 }
 
@@ -122,6 +146,7 @@ interface LockedLineRow extends QueryResultRow {
   bill_id: string;
   venue_id: string;
   service_point_id: string;
+  line_kind: 'CATALOG' | 'MANUAL_PRODUCT' | 'MANUAL_TIME';
   line_status: 'ACTIVE' | 'VOIDED';
   order_status: 'PENDING' | 'ACCEPTED' | 'SERVED' | 'CANCELLED';
   bill_status: 'OPEN' | 'COMPLETED' | 'CANCELLED';
@@ -154,6 +179,38 @@ async function acquireBillLock(client: PoolClient, billId: string): Promise<void
   await client.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`bill:${billId}`]);
 }
 
+async function hasActiveSettlementsForLine(client: PoolClient, lineId: string): Promise<boolean> {
+  const result = await client.query<{ exists: boolean } & QueryResultRow>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM order_line_settlements
+        WHERE order_line_id = $1 AND status = 'ACTIVE'
+      ) AS exists
+    `,
+    [lineId],
+  );
+
+  return result.rows[0]?.exists ?? false;
+}
+
+async function hasActiveSettlementsForOrder(client: PoolClient, orderId: string): Promise<boolean> {
+  const result = await client.query<{ exists: boolean } & QueryResultRow>(
+    `
+      SELECT EXISTS (
+        SELECT 1
+        FROM order_line_settlements
+        INNER JOIN order_lines ON order_lines.id = order_line_settlements.order_line_id
+        WHERE order_lines.order_id = $1
+          AND order_line_settlements.status = 'ACTIVE'
+      ) AS exists
+    `,
+    [orderId],
+  );
+
+  return result.rows[0]?.exists ?? false;
+}
+
 async function readBillDetail(
   executor: Pick<Pool, 'query'> | Pick<PoolClient, 'query'>,
   billId: string,
@@ -166,6 +223,7 @@ async function readBillDetail(
         bills.subtotal_vnd,
         bills.total_vnd,
         bills.opened_at,
+        bills.updated_at,
         venues.id AS venue_id,
         venues.name AS venue_name,
         service_points.id AS service_point_id,
@@ -186,57 +244,131 @@ async function readBillDetail(
     return null;
   }
 
-  const [ordersResult, linesResult] = await Promise.all([
-    executor.query<BillOrderRow>(
-      `
-        SELECT
-          id,
-          idempotency_key,
-          status,
-          note,
-          total_vnd,
-          accepted_at,
-          served_at,
-          cancelled_at,
-          cancellation_reason,
-          created_at
-        FROM orders
-        WHERE bill_id = $1
-        ORDER BY created_at ASC, id ASC
-      `,
-      [billId],
-    ),
-    executor.query<BillLineRow>(
-      `
-        SELECT
-          id,
-          order_id,
-          catalog_item_id,
-          item_name_snapshot,
-          unit_name_snapshot,
-          image_public_id_snapshot,
-          unit_price_snapshot_vnd,
-          quantity,
-          line_total_vnd,
-          status,
-          void_reason,
-          voided_at,
-          created_at
-        FROM order_lines
-        WHERE bill_id = $1
-        ORDER BY created_at ASC, id ASC
-      `,
-      [billId],
-    ),
-  ]);
+  // A PoolClient can execute only one query at a time. Keep these reads sequential so
+  // repeatable-read snapshots never rely on pg's deprecated overlapping-query queue.
+  const ordersResult = await executor.query<BillOrderRow>(
+    `
+      SELECT
+        id,
+        idempotency_key,
+        status,
+        note,
+        total_vnd,
+        accepted_at,
+        served_at,
+        cancelled_at,
+        cancellation_reason,
+        created_at
+      FROM orders
+      WHERE bill_id = $1
+      ORDER BY created_at ASC, id ASC
+    `,
+    [billId],
+  );
+  const linesResult = await executor.query<BillLineRow>(
+    `
+      SELECT
+        id,
+        order_id,
+        line_kind,
+        catalog_item_id,
+        item_name_snapshot,
+        unit_name_snapshot,
+        image_public_id_snapshot,
+        unit_price_snapshot_vnd,
+        quantity,
+        duration_minutes,
+        billing_interval_minutes,
+        line_total_vnd,
+        status,
+        void_reason,
+        voided_at,
+        created_at
+      FROM order_lines
+      WHERE bill_id = $1
+      ORDER BY created_at ASC, id ASC
+    `,
+    [billId],
+  );
+  const settlementsResult = await executor.query<BillSettlementRow>(
+    `
+      SELECT
+        id,
+        order_line_id,
+        settlement_type,
+        quantity,
+        unit_price_snapshot_vnd,
+        amount_vnd,
+        reason,
+        status,
+        created_by_admin_user_id,
+        reversed_by_admin_user_id,
+        reversal_reason,
+        reversed_at,
+        created_at
+      FROM order_line_settlements
+      WHERE bill_id = $1
+      ORDER BY created_at ASC, id ASC
+    `,
+    [billId],
+  );
 
   const linesByOrder = new Map<string, BillLineRow[]>();
+  const settlementsByLine = new Map<string, BillSettlementRow[]>();
 
   for (const line of linesResult.rows) {
     const current = linesByOrder.get(line.order_id) ?? [];
     current.push(line);
     linesByOrder.set(line.order_id, current);
   }
+
+  for (const settlement of settlementsResult.rows) {
+    const current = settlementsByLine.get(settlement.order_line_id) ?? [];
+    current.push(settlement);
+    settlementsByLine.set(settlement.order_line_id, current);
+  }
+
+  const settlementStateByLine = buildLineSettlementStateMap({
+    lines: linesResult.rows.map((line) => ({
+      id: line.id,
+      unitPriceVnd: line.unit_price_snapshot_vnd,
+      quantity: line.quantity,
+    })),
+    settlements: settlementsResult.rows.map((settlement) => ({
+      id: settlement.id,
+      lineId: settlement.order_line_id,
+      type: settlement.settlement_type,
+      status: settlement.status,
+      quantity: settlement.quantity,
+      amountVnd: settlement.amount_vnd,
+    })),
+  });
+
+  const summary = buildBillProjection({
+    orders: ordersResult.rows.map((order) => ({ id: order.id, status: order.status })),
+    lines: linesResult.rows.map((line) => ({
+      id: line.id,
+      orderId: line.order_id,
+      lineKind: line.line_kind,
+      catalogItemId: line.catalog_item_id,
+      itemName: line.item_name_snapshot,
+      unitName: line.unit_name_snapshot,
+      imagePublicId: line.image_public_id_snapshot,
+      unitPriceVnd: line.unit_price_snapshot_vnd,
+      quantity: line.quantity,
+      lineTotalVnd: line.line_total_vnd,
+      status: line.status,
+      createdAt: line.created_at,
+    })),
+    settlements: settlementsResult.rows.map((settlement) => ({
+      id: settlement.id,
+      lineId: settlement.order_line_id,
+      type: settlement.settlement_type,
+      status: settlement.status,
+      quantity: settlement.quantity,
+      amountVnd: settlement.amount_vnd,
+    })),
+  });
 
   return adminBillDetailResponseSchema.parse({
     generatedAt: new Date().toISOString(),
@@ -256,7 +388,9 @@ async function readBillDetail(
       subtotalVnd: header.subtotal_vnd,
       totalVnd: header.total_vnd,
       openedAt: header.opened_at.toISOString(),
+      updatedAt: header.updated_at.toISOString(),
     },
+    summary,
     orders: ordersResult.rows.map((order) => ({
       id: order.id,
       source: order.idempotency_key.startsWith('admin:') ? 'ADMIN' : 'CUSTOMER',
@@ -268,20 +402,46 @@ async function readBillDetail(
       cancelledAt: toIso(order.cancelled_at),
       cancellationReason: order.cancellation_reason,
       createdAt: order.created_at.toISOString(),
-      lines: (linesByOrder.get(order.id) ?? []).map((line) => ({
-        id: line.id,
-        catalogItemId: line.catalog_item_id,
-        itemName: line.item_name_snapshot,
-        unitName: line.unit_name_snapshot,
-        imagePublicId: line.image_public_id_snapshot,
-        unitPriceVnd: line.unit_price_snapshot_vnd,
-        quantity: line.quantity,
-        lineTotalVnd: line.line_total_vnd,
-        status: line.status,
-        voidReason: line.void_reason,
-        voidedAt: toIso(line.voided_at),
-        createdAt: line.created_at.toISOString(),
-      })),
+      lines: (linesByOrder.get(order.id) ?? []).map((line) => {
+        const settlementState = settlementStateByLine.get(line.id);
+
+        if (!settlementState) {
+          throw new Error(`Settlement state missing for line ${line.id}.`);
+        }
+
+        return {
+          id: line.id,
+          lineKind: line.line_kind,
+          catalogItemId: line.catalog_item_id,
+          itemName: line.item_name_snapshot,
+          unitName: line.unit_name_snapshot,
+          imagePublicId: line.image_public_id_snapshot,
+          unitPriceVnd: line.unit_price_snapshot_vnd,
+          quantity: line.quantity,
+          durationMinutes: line.duration_minutes,
+          billingIntervalMinutes: line.billing_interval_minutes,
+          lineTotalVnd: line.line_total_vnd,
+          ...settlementState,
+          settlements: (settlementsByLine.get(line.id) ?? []).map((settlement) => ({
+            id: settlement.id,
+            type: settlement.settlement_type,
+            quantity: settlement.quantity,
+            unitPriceVnd: settlement.unit_price_snapshot_vnd,
+            amountVnd: settlement.amount_vnd,
+            reason: settlement.reason,
+            status: settlement.status,
+            createdByAdminUserId: settlement.created_by_admin_user_id,
+            reversedByAdminUserId: settlement.reversed_by_admin_user_id,
+            reversalReason: settlement.reversal_reason,
+            reversedAt: toIso(settlement.reversed_at),
+            createdAt: settlement.created_at.toISOString(),
+          })),
+          status: line.status,
+          voidReason: line.void_reason,
+          voidedAt: toIso(line.voided_at),
+          createdAt: line.created_at.toISOString(),
+        };
+      }),
     })),
   });
 }
@@ -430,7 +590,11 @@ export function createAdminOrderOperationsService(
   eventPublisher?: OrderCreatedEventPublisher,
 ): AdminOrderOperationsService {
   return {
-    readBill: (billId) => readBillDetail(pool, billId),
+    readBill: (billId) =>
+      withTransaction(pool, (client) => readBillDetail(client, billId), {
+        isolationLevel: 'repeatable read',
+        readOnly: true,
+      }),
 
     async updateOrderStatus(command) {
       const result = await withTransaction(pool, async (client) => {
@@ -514,6 +678,13 @@ export function createAdminOrderOperationsService(
             throw new AdminOrderOperationDomainError(
               'INVALID_ORDER_TRANSITION',
               'Chỉ order đang chờ hoặc đã chấp nhận mới có thể hủy.',
+            );
+          }
+
+          if (await hasActiveSettlementsForOrder(client, order.id)) {
+            throw new AdminOrderOperationDomainError(
+              'ORDER_HAS_ACTIVE_SETTLEMENTS',
+              'Không thể hủy order còn settlement đang hoạt động.',
             );
           }
 
@@ -739,6 +910,7 @@ export function createAdminOrderOperationsService(
               order_lines.bill_id,
               orders.venue_id,
               orders.service_point_id,
+              order_lines.line_kind,
               order_lines.status AS line_status,
               orders.status AS order_status,
               bills.status AS bill_status,
@@ -768,7 +940,15 @@ export function createAdminOrderOperationsService(
           );
         }
 
+        if (await hasActiveSettlementsForLine(client, line.id)) {
+          throw new AdminOrderOperationDomainError(
+            'ORDER_LINE_HAS_ACTIVE_SETTLEMENTS',
+            'Không thể sửa line còn settlement đang hoạt động.',
+          );
+        }
+
         if (
+          line.line_kind !== 'CATALOG' ||
           line.line_status !== 'ACTIVE' ||
           (line.order_status !== 'PENDING' && line.order_status !== 'ACCEPTED')
         ) {
@@ -847,6 +1027,7 @@ export function createAdminOrderOperationsService(
               order_lines.bill_id,
               orders.venue_id,
               orders.service_point_id,
+              order_lines.line_kind,
               order_lines.status AS line_status,
               orders.status AS order_status,
               bills.status AS bill_status,
@@ -873,6 +1054,20 @@ export function createAdminOrderOperationsService(
           throw new AdminOrderOperationDomainError(
             'ADMIN_BILL_NOT_OPEN',
             'Bill không còn mở để chỉnh sửa.',
+          );
+        }
+
+        if (await hasActiveSettlementsForLine(client, line.id)) {
+          throw new AdminOrderOperationDomainError(
+            'ORDER_LINE_HAS_ACTIVE_SETTLEMENTS',
+            'Không thể void line còn settlement đang hoạt động.',
+          );
+        }
+
+        if (line.line_kind !== 'CATALOG') {
+          throw new AdminOrderOperationDomainError(
+            'ORDER_LINE_NOT_EDITABLE',
+            'Khoản phát sinh phải được void bằng API custom charge.',
           );
         }
 

@@ -353,7 +353,7 @@ export async function verifyDatabaseFoundation(
   assert.ok(counts.admins >= 1, 'Expected at least one admin user.');
   assert.ok(counts.categories >= 3, 'Expected seeded catalog categories.');
   assert.ok(counts.items >= 6, 'Expected seeded catalog items.');
-  assert.ok(counts.servicePoints >= 1, 'Expected at least one service point.');
+  assert.ok(counts.servicePoints >= 10, 'Expected at least ten service points.');
   assert.ok(counts.venues >= 1, 'Expected at least one venue.');
 
   return counts;

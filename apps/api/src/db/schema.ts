@@ -32,6 +32,13 @@ export const orderStatusEnum = pgEnum('order_status', [
   'CANCELLED',
 ]);
 export const orderLineStatusEnum = pgEnum('order_line_status', ['ACTIVE', 'VOIDED']);
+export const orderLineKindEnum = pgEnum('order_line_kind', [
+  'CATALOG',
+  'MANUAL_PRODUCT',
+  'MANUAL_TIME',
+]);
+export const settlementTypeEnum = pgEnum('settlement_type', ['PAID', 'WAIVED']);
+export const settlementStatusEnum = pgEnum('settlement_status', ['ACTIVE', 'REVERSED']);
 export const serviceRequestStatusEnum = pgEnum('service_request_status', [
   'PENDING',
   'RESOLVED',
@@ -282,14 +289,17 @@ export const orderLines = pgTable(
     billId: uuid('bill_id')
       .notNull()
       .references(() => bills.id, { onDelete: 'restrict' }),
-    catalogItemId: uuid('catalog_item_id')
-      .notNull()
-      .references(() => catalogItems.id, { onDelete: 'restrict' }),
+    lineKind: orderLineKindEnum('line_kind').notNull().default('CATALOG'),
+    catalogItemId: uuid('catalog_item_id').references(() => catalogItems.id, {
+      onDelete: 'restrict',
+    }),
     itemNameSnapshot: varchar('item_name_snapshot', { length: 160 }).notNull(),
     unitNameSnapshot: varchar('unit_name_snapshot', { length: 40 }).notNull(),
     imagePublicIdSnapshot: text('image_public_id_snapshot'),
     unitPriceSnapshotVnd: integer('unit_price_snapshot_vnd').notNull(),
     quantity: integer('quantity').notNull(),
+    durationMinutes: integer('duration_minutes'),
+    billingIntervalMinutes: integer('billing_interval_minutes'),
     lineTotalVnd: integer('line_total_vnd').notNull(),
     status: orderLineStatusEnum('status').notNull().default('ACTIVE'),
     voidReason: text('void_reason'),
@@ -307,8 +317,66 @@ export const orderLines = pgTable(
       sql`${table.lineTotalVnd} = ${table.unitPriceSnapshotVnd} * ${table.quantity}`,
     ),
     check(
+      'order_lines_kind_metadata_check',
+      sql`(${table.lineKind} = 'CATALOG' AND ${table.catalogItemId} IS NOT NULL AND ${table.durationMinutes} IS NULL AND ${table.billingIntervalMinutes} IS NULL) OR (${table.lineKind} = 'MANUAL_PRODUCT' AND ${table.catalogItemId} IS NULL AND ${table.imagePublicIdSnapshot} IS NULL AND ${table.durationMinutes} IS NULL AND ${table.billingIntervalMinutes} IS NULL) OR (${table.lineKind} = 'MANUAL_TIME' AND ${table.catalogItemId} IS NULL AND ${table.imagePublicIdSnapshot} IS NULL AND ${table.durationMinutes} IS NOT NULL AND ${table.durationMinutes} > 0 AND ${table.billingIntervalMinutes} IS NOT NULL AND ${table.billingIntervalMinutes} > 0 AND ${table.quantity} = CEIL(${table.durationMinutes}::numeric / ${table.billingIntervalMinutes}::numeric))`,
+    ),
+    check(
       'order_lines_void_consistency_check',
       sql`(${table.status} = 'VOIDED' AND ${table.voidedAt} IS NOT NULL AND ${table.voidReason} IS NOT NULL) OR (${table.status} = 'ACTIVE' AND ${table.voidedAt} IS NULL AND ${table.voidReason} IS NULL)`,
+    ),
+  ],
+);
+
+export const orderLineSettlements = pgTable(
+  'order_line_settlements',
+  {
+    id: uuid('id')
+      .primaryKey()
+      .default(sql`uuidv7()`),
+    billId: uuid('bill_id')
+      .notNull()
+      .references(() => bills.id, { onDelete: 'restrict' }),
+    orderLineId: uuid('order_line_id')
+      .notNull()
+      .references(() => orderLines.id, { onDelete: 'restrict' }),
+    settlementType: settlementTypeEnum('settlement_type').notNull(),
+    quantity: integer('quantity').notNull(),
+    unitPriceSnapshotVnd: integer('unit_price_snapshot_vnd').notNull(),
+    amountVnd: integer('amount_vnd').notNull(),
+    reason: text('reason'),
+    idempotencyKey: varchar('idempotency_key', { length: 128 }).notNull().unique(),
+    status: settlementStatusEnum('status').notNull().default('ACTIVE'),
+    createdByAdminUserId: uuid('created_by_admin_user_id')
+      .notNull()
+      .references(() => adminUsers.id, { onDelete: 'restrict' }),
+    reversedByAdminUserId: uuid('reversed_by_admin_user_id').references(() => adminUsers.id, {
+      onDelete: 'restrict',
+    }),
+    reversalReason: text('reversal_reason'),
+    reversalIdempotencyKey: varchar('reversal_idempotency_key', { length: 128 }).unique(),
+    reversedAt: timestamp('reversed_at', { withTimezone: true }),
+    createdAt,
+    updatedAt,
+  },
+  (table) => [
+    index('order_line_settlements_bill_created_idx').on(table.billId, table.createdAt),
+    index('order_line_settlements_line_status_idx').on(table.orderLineId, table.status),
+    check('order_line_settlements_quantity_positive_check', sql`${table.quantity} > 0`),
+    check(
+      'order_line_settlements_unit_price_nonnegative_check',
+      sql`${table.unitPriceSnapshotVnd} >= 0`,
+    ),
+    check(
+      'order_line_settlements_amount_formula_check',
+      sql`${table.amountVnd} = ${table.unitPriceSnapshotVnd} * ${table.quantity}`,
+    ),
+    check(
+      'order_line_settlements_reason_consistency_check',
+      sql`(${table.settlementType} = 'PAID' AND ${table.reason} IS NULL) OR (${table.settlementType} = 'WAIVED' AND ${table.reason} IS NOT NULL)`,
+    ),
+    check(
+      'order_line_settlements_reversal_consistency_check',
+      sql`(${table.status} = 'ACTIVE' AND ${table.reversedByAdminUserId} IS NULL AND ${table.reversalReason} IS NULL AND ${table.reversalIdempotencyKey} IS NULL AND ${table.reversedAt} IS NULL) OR (${table.status} = 'REVERSED' AND ${table.reversedByAdminUserId} IS NOT NULL AND ${table.reversalReason} IS NOT NULL AND ${table.reversalIdempotencyKey} IS NOT NULL AND ${table.reversedAt} IS NOT NULL)`,
     ),
   ],
 );
@@ -381,4 +449,5 @@ export type CatalogItem = typeof catalogItems.$inferSelect;
 export type Bill = typeof bills.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderLine = typeof orderLines.$inferSelect;
+export type OrderLineSettlement = typeof orderLineSettlements.$inferSelect;
 export type ServiceRequest = typeof serviceRequests.$inferSelect;

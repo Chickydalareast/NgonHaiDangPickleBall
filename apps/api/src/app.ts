@@ -6,6 +6,8 @@ import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastif
 
 import { createRequireAdmin } from './admin/admin-auth-guard.js';
 import { registerAdminCatalogRoutes } from './catalog/admin-catalog-routes.js';
+import { registerAdminCustomChargeRoutes } from './custom-charge/admin-custom-charge-routes.js';
+import type { AdminCustomChargeService } from './custom-charge/admin-custom-charge-service.js';
 import type { AdminCatalogService } from './catalog/admin-catalog-service.js';
 import { registerAdminBillCompletionRoutes } from './admin/admin-bill-completion-routes.js';
 import type { AdminBillCompletionService } from './admin/admin-bill-completion-service.js';
@@ -19,9 +21,15 @@ import type { AdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { registerAdminRealtimeRoutes } from './admin/admin-realtime-routes.js';
 import { registerAdminServiceRequestRoutes } from './admin/admin-service-request-routes.js';
 import type { AdminServiceRequestService } from './admin/admin-service-request-service.js';
+import { registerAdminServicePointRoutes } from './service-point/admin-service-point-routes.js';
+import { registerAdminSettlementRoutes } from './settlement/admin-settlement-routes.js';
+import type { AdminSettlementService } from './settlement/admin-settlement-service.js';
+import type { AdminServicePointService } from './service-point/admin-service-point-service.js';
 import { registerCreateOrderRoutes } from './order/create-order-routes.js';
 import type { CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
+import { registerPublicCurrentBillRoutes } from './public-bill/public-current-bill-routes.js';
+import type { PublicCurrentBillService } from './public-bill/public-current-bill-service.js';
 import { registerPublicContextRoutes } from './public-context/public-context-routes.js';
 import { registerPublicServiceRequestRoutes } from './service-request/public-service-request-routes.js';
 import type { PublicServiceRequestService } from './service-request/public-service-request-service.js';
@@ -40,14 +48,18 @@ export interface HealthResponse {
 export interface AppDependencies {
   adminAuthService?: AdminAuthService;
   adminCatalogService?: AdminCatalogService;
+  adminCustomChargeService?: AdminCustomChargeService;
   adminBillCompletionService?: AdminBillCompletionService;
   adminCookieSecure?: boolean;
   adminDashboardRepository?: AdminDashboardRepository;
   adminOrderOperationsService?: AdminOrderOperationsService;
   adminRealtimeHub?: AdminRealtimeHub;
   adminServiceRequestService?: AdminServiceRequestService;
+  adminServicePointService?: AdminServicePointService;
+  adminSettlementService?: AdminSettlementService;
   createOrderService?: CreateOrderService;
   publicContextRepository?: PublicContextRepository;
+  publicCurrentBillService?: PublicCurrentBillService;
   publicServiceRequestService?: PublicServiceRequestService;
 }
 
@@ -88,6 +100,12 @@ export function buildApp(
     });
   }
 
+  if (dependencies.publicCurrentBillService) {
+    registerPublicCurrentBillRoutes(app, {
+      service: dependencies.publicCurrentBillService,
+    });
+  }
+
   if (dependencies.publicServiceRequestService) {
     registerPublicServiceRequestRoutes(app, {
       service: dependencies.publicServiceRequestService,
@@ -103,9 +121,12 @@ export function buildApp(
   if (
     (dependencies.adminBillCompletionService ||
       dependencies.adminCatalogService ||
+      dependencies.adminCustomChargeService ||
       dependencies.adminDashboardRepository ||
       dependencies.adminOrderOperationsService ||
       dependencies.adminRealtimeHub ||
+      dependencies.adminServicePointService ||
+      dependencies.adminSettlementService ||
       dependencies.adminServiceRequestService) &&
     !dependencies.adminAuthService
   ) {
@@ -139,6 +160,13 @@ export function buildApp(
       });
     }
 
+    if (dependencies.adminCustomChargeService) {
+      registerAdminCustomChargeRoutes(app, {
+        service: dependencies.adminCustomChargeService,
+        requireAdmin,
+      });
+    }
+
     if (dependencies.adminDashboardRepository) {
       registerAdminDashboardRoutes(app, {
         repository: dependencies.adminDashboardRepository,
@@ -149,6 +177,20 @@ export function buildApp(
     if (dependencies.adminOrderOperationsService) {
       registerAdminOrderOperationsRoutes(app, {
         service: dependencies.adminOrderOperationsService,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminServicePointService) {
+      registerAdminServicePointRoutes(app, {
+        service: dependencies.adminServicePointService,
+        requireAdmin,
+      });
+    }
+
+    if (dependencies.adminSettlementService) {
+      registerAdminSettlementRoutes(app, {
+        service: dependencies.adminSettlementService,
         requireAdmin,
       });
     }

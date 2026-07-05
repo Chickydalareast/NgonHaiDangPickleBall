@@ -78,16 +78,7 @@ jobs:
       - name: Apply migrations
         run: pnpm db:migrate
 
-      - name: Seed and verify database
+      - name: Seed and verify full V1 database behavior
         run: |
           pnpm db:seed
-          pnpm db:verify
-          pnpm db:verify:empty
-          pnpm public:verify:db
-          pnpm order:verify:db
-          pnpm auth:verify:db
-          pnpm realtime:verify:db
-          pnpm operations:verify:db
-          pnpm bills:verify:db
-          pnpm staff:verify:db
-          pnpm catalog:verify:db
+          pnpm step10pro:verify:db

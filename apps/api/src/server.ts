@@ -11,6 +11,7 @@ import { createAdminRealtimeHub } from './admin/admin-realtime-hub.js';
 import { createAdminServiceRequestService } from './admin/admin-service-request-service.js';
 import { createAdminCatalogService } from './catalog/admin-catalog-service.js';
 import { createCatalogMediaService } from './catalog/cloudinary-catalog-media.js';
+import { createAdminCustomChargeService } from './custom-charge/admin-custom-charge-service.js';
 import { buildApp } from './app.js';
 import { readCloudinaryEnvironment } from './config/cloudinary-environment.js';
 import { readDatabaseEnvironment } from './config/database-environment.js';
@@ -18,7 +19,10 @@ import { readApiEnvironment } from './config/environment.js';
 import { createDatabaseConnection } from './db/client.js';
 import { createOrderService } from './order/create-order-service.js';
 import { createPublicContextRepository } from './public-context/public-context-repository.js';
+import { createPublicCurrentBillService } from './public-bill/public-current-bill-service.js';
 import { createPublicServiceRequestService } from './service-request/public-service-request-service.js';
+import { createAdminServicePointService } from './service-point/admin-service-point-service.js';
+import { createAdminSettlementService } from './settlement/admin-settlement-service.js';
 
 if (process.env.NODE_ENV !== 'production') {
   const environmentCandidates = [
@@ -47,6 +51,10 @@ const database = createDatabaseConnection(databaseEnvironment.DATABASE_URL, {
 const adminAuthService = createAdminAuthService(database.pool, apiEnvironment.SESSION_SECRET);
 const adminRealtimeHub = createAdminRealtimeHub();
 const catalogMediaService = createCatalogMediaService(cloudinaryEnvironment);
+const adminOrderOperationsService = createAdminOrderOperationsService(
+  database.pool,
+  adminRealtimeHub,
+);
 
 const app = buildApp(
   {
@@ -57,13 +65,28 @@ const app = buildApp(
   {
     adminAuthService,
     adminCatalogService: createAdminCatalogService(database.pool, catalogMediaService),
+    adminCustomChargeService: createAdminCustomChargeService(
+      database.pool,
+      (billId) => adminOrderOperationsService.readBill(billId),
+      adminRealtimeHub,
+    ),
     adminBillCompletionService: createAdminBillCompletionService(database.pool, adminRealtimeHub),
     adminCookieSecure: new URL(apiEnvironment.WEB_ORIGIN).protocol === 'https:',
     adminDashboardRepository: createAdminDashboardRepository(database.pool),
-    adminOrderOperationsService: createAdminOrderOperationsService(database.pool, adminRealtimeHub),
+    adminOrderOperationsService,
     adminRealtimeHub,
     adminServiceRequestService: createAdminServiceRequestService(database.pool, adminRealtimeHub),
+    adminServicePointService: createAdminServicePointService(
+      database.pool,
+      apiEnvironment.WEB_ORIGIN,
+    ),
+    adminSettlementService: createAdminSettlementService(
+      database.pool,
+      (billId) => adminOrderOperationsService.readBill(billId),
+      adminRealtimeHub,
+    ),
     createOrderService: createOrderService(database.pool, adminRealtimeHub),
+    publicCurrentBillService: createPublicCurrentBillService(database.pool),
     publicContextRepository: createPublicContextRepository(
       database.db,
       catalogMediaService.configuration.cloudName,

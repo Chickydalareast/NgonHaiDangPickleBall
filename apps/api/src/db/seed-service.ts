@@ -15,6 +15,19 @@ interface SeedSummary {
   venueId: string;
 }
 
+const seedServicePoints = Array.from({ length: 10 }, (_, index) => {
+  const ordinal = index + 1;
+  const suffix = String(ordinal).padStart(2, '0');
+
+  return {
+    code: `COURT-${suffix}`,
+    name: `Sân ${suffix}`,
+    slug: `san-${suffix}`,
+    status: 'ACTIVE' as const,
+    sortOrder: ordinal * 10,
+  };
+});
+
 const seedCategories = [
   {
     name: 'Nước uống',
@@ -134,27 +147,15 @@ export async function seedDatabase(
           throw new Error('Venue seed did not return an id.');
         }
 
-        await tx
-          .insert(servicePoints)
-          .values({
-            venueId: venue.id,
-            code: 'COURT-01',
-            name: 'Sân 01',
-            slug: 'san-01',
-            status: 'ACTIVE',
-            sortOrder: 10,
-          })
-          .onConflictDoUpdate({
-            target: servicePoints.slug,
-            set: {
+        for (const servicePoint of seedServicePoints) {
+          await tx
+            .insert(servicePoints)
+            .values({
               venueId: venue.id,
-              code: 'COURT-01',
-              name: 'Sân 01',
-              status: 'ACTIVE',
-              sortOrder: 10,
-              updatedAt: sql`now()`,
-            },
-          });
+              ...servicePoint,
+            })
+            .onConflictDoNothing({ target: servicePoints.slug });
+        }
 
         const categoryIds = new Map<string, string>();
 
@@ -258,7 +259,7 @@ export async function seedDatabase(
           adminCreated,
           categories: seedCategories.length,
           items: seedItems.length,
-          servicePoints: 1,
+          servicePoints: seedServicePoints.length,
           venueId: venue.id,
         };
       },

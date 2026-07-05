@@ -41,7 +41,7 @@ async function verifyEmptyDatabase(): Promise<void> {
       admins: 1,
       categories: 3,
       items: 6,
-      servicePoints: 1,
+      servicePoints: 10,
       venues: 1,
     });
 

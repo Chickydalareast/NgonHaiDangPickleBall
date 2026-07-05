@@ -21,6 +21,7 @@ export const adminBillCompletionApiErrorSchema = z
       'ADMIN_BILL_NOT_FOUND',
       'ADMIN_BILL_NOT_OPEN',
       'BILL_HAS_UNRESOLVED_ORDERS',
+      'BILL_HAS_OUTSTANDING_SETTLEMENTS',
       'BILL_TOTAL_TOO_LARGE',
     ]),
     message: z.string().min(1),

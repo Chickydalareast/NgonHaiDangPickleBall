@@ -173,3 +173,84 @@ CLOUDINARY_CLOUD_NAME
 CLOUDINARY_API_KEY
 CLOUDINARY_API_SECRET
 ```
+
+## Step 10.PRO-A service points and QR
+
+The V1 seed ensures ten courts (`san-01` through `san-10`) without overwriting edits to existing courts.
+
+Authenticated admin endpoints:
+
+```text
+GET   /api/admin/service-points
+POST  /api/admin/service-points
+PATCH /api/admin/service-points/:servicePointId
+GET   /api/admin/service-points/:servicePointId/qr.svg
+GET   /api/admin/service-points/:servicePointId/qr.png
+GET   /api/admin/service-points/qr-pack.zip
+```
+
+Useful commands:
+
+```bash
+pnpm service-points:verify:db
+pnpm service-points:verify
+pnpm service-points:qr:export
+```
+
+The export command writes `artifacts/qr/nhdp-service-points-qr-pack.zip`. Local QR files use the current `WEB_ORIGIN`; regenerate them after the production domain is configured.
+
+## Step 10.PRO-B provisional bill API
+
+Customers can poll the active court bill without authentication:
+
+```text
+GET /api/public/service-points/:slug/bill
+```
+
+The response keeps original order history and adds a read-only grouped summary. For example, three bottles in one order and two equivalent bottles in a later order are displayed as five bottles in the provisional summary without merging database rows. Different unit-price snapshots remain separate.
+
+Verification commands:
+
+```bash
+pnpm bill-projection:verify:db
+pnpm bill-projection:verify
+```
+
+## Step 10.PRO-C custom charges
+
+Admin can add non-catalog product fees and interval-based time charges directly to an open bill. These remain auditable order lines and never appear in the public catalog.
+
+```bash
+pnpm custom-charges:verify:db
+pnpm custom-charges:verify
+```
+
+## Step 10.PRO-D partial settlement
+
+Admin settlement is quantity-based and server-priced:
+
+```text
+POST /api/admin/order-lines/:lineId/settlements
+POST /api/admin/settlements/:settlementId/reverse
+```
+
+`PAID` and `WAIVED` allocations update the shared admin/customer bill projection. Reversed rows remain in the audit history but stop contributing to totals. Lines with active settlements cannot be edited, voided or cancelled through their parent order. Bill completion requires every active line quantity to be paid or waived.
+
+```bash
+pnpm settlements:verify:db
+pnpm settlements:verify
+```
+
+## Step 10.PRO-E completion hardening
+
+Step 10.PRO finishes with serialized transaction-scoped bill reads, migration journal integrity checks and concurrency verification for competing allocations, exact idempotent replays, and settlement reversal racing bill completion.
+
+Use the consolidated gates instead of repeating every command manually:
+
+```bash
+pnpm migrations:verify
+pnpm step10pro:verify:db
+pnpm step10pro:verify
+```
+
+The full Step 10.PRO branch remains uncommitted until Parts A–E pass CTO review. It is then committed and fast-forward merged once as one operational-completion change set.

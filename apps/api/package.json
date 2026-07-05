@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test": "tsx --test src/**/*.test.ts",
+    "test": "tsx --test src/*.test.ts src/**/*.test.ts",
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:generate": "drizzle-kit generate --config=src/db/drizzle.config.ts",
@@ -21,7 +21,14 @@
     "operations:verify:db": "tsx src/admin/order-operations-verify.ts",
     "bills:verify:db": "tsx src/admin/bill-completion-verify.ts",
     "staff:verify:db": "tsx src/service-request/service-request-verify.ts",
-    "catalog:verify:db": "tsx src/catalog/catalog-verify.ts"
+    "catalog:verify:db": "tsx src/catalog/catalog-verify.ts",
+    "service-points:verify:db": "tsx src/service-point/service-point-verify.ts",
+    "service-points:verify": "tsx src/service-point/http-verify.ts",
+    "service-points:qr:export": "tsx src/service-point/export-qr-pack.ts",
+    "bill-projection:verify:db": "tsx src/public-bill/verify.ts",
+    "custom-charges:verify:db": "tsx src/custom-charge/verify.ts",
+    "settlements:verify:db": "tsx src/settlement/verify.ts",
+    "hardening:verify:db": "tsx src/hardening/verify.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.0.2",
@@ -31,13 +38,18 @@
     "drizzle-orm": "0.45.2",
     "fastify": "^5.9.0",
     "pg": "8.22.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "fflate": "0.8.3",
+    "pngjs": "7.0.0",
+    "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
     "@types/node": "^24.13.2",
     "@types/pg": "8.15.6",
     "drizzle-kit": "0.31.10",
     "tsx": "^4.22.5",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "@types/pngjs": "6.0.5",
+    "jsqr": "1.4.0"
   }
 }
