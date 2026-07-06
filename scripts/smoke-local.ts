@@ -14,7 +14,9 @@ const caddyPort = z.coerce
   .max(65_535)
   .parse(localEnvironment.CADDY_HTTP_PORT ?? 8080);
 
-const baseUrl = `http://127.0.0.1:${caddyPort}`;
+const baseUrl = new URL(
+  process.env.SMOKE_BASE_URL ?? process.env.WEB_ORIGIN ?? `http://127.0.0.1:${caddyPort}`,
+);
 
 const healthSchema = z.object({
   status: z.literal('ok'),
@@ -22,6 +24,15 @@ const healthSchema = z.object({
   version: z.string(),
   uptimeSeconds: z.number().nonnegative(),
   timestamp: z.string(),
+  commitSha: z.string().min(1),
+});
+
+const readinessSchema = z.object({
+  status: z.literal('ready'),
+  service: z.literal('@nhdp/api'),
+  version: z.string(),
+  timestamp: z.string(),
+  commitSha: z.string().min(1),
 });
 
 async function waitFor<T>(
@@ -51,6 +62,21 @@ async function waitFor<T>(
   );
 }
 
+async function fetchJson(pathname: string): Promise<unknown> {
+  const response = await fetch(new URL(pathname, baseUrl), {
+    headers: {
+      Accept: 'application/json',
+    },
+    signal: AbortSignal.timeout(5_000),
+  });
+
+  if (!response.ok) {
+    throw new Error(`GET ${pathname} returned HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
 async function main(): Promise<void> {
   const html = await waitFor('Caddy web shell', async () => {
     const response = await fetch(baseUrl, {
@@ -70,25 +96,18 @@ async function main(): Promise<void> {
     return body;
   });
 
-  const health = await waitFor('API through Caddy', async () => {
-    const response = await fetch(`${baseUrl}/api/health`, {
-      headers: {
-        Accept: 'application/json',
-      },
-      signal: AbortSignal.timeout(5_000),
-    });
+  const health = await waitFor('API liveness through Caddy', async () =>
+    healthSchema.parse(await fetchJson('/api/health')),
+  );
 
-    if (!response.ok) {
-      throw new Error(`GET /api/health returned HTTP ${response.status}`);
-    }
+  const readiness = await waitFor('API readiness through Caddy', async () =>
+    readinessSchema.parse(await fetchJson('/api/ready')),
+  );
 
-    return healthSchema.parse(await response.json());
-  });
-
-  console.log(`Local smoke PASS: ${baseUrl}`);
+  console.log(`Smoke PASS: ${baseUrl.toString()}`);
   console.log(`Web shell bytes: ${Buffer.byteLength(html, 'utf8')}`);
   console.log(
-    `API health: ${health.status}, service=${health.service}, uptime=${health.uptimeSeconds}s`,
+    `API health: ${health.status}, readiness=${readiness.status}, commit=${readiness.commitSha}, uptime=${health.uptimeSeconds}s`,
   );
 }
 

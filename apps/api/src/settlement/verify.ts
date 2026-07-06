@@ -16,6 +16,7 @@ import {
   AdminCustomChargeDomainError,
   createAdminCustomChargeService,
 } from '../custom-charge/admin-custom-charge-service.js';
+import { dropVerificationDatabase } from '../db/verification-database.js';
 import { createDatabaseConnection } from '../db/client.js';
 import { runMigrations } from '../db/migrations.js';
 import { seedDatabase } from '../db/seed-service.js';
@@ -450,9 +451,7 @@ async function main(): Promise<void> {
       await database.pool.end();
     }
   } finally {
-    await adminClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(verificationDatabase)} WITH (FORCE)`,
-    );
+    await dropVerificationDatabase(adminClient, verificationDatabase);
     await adminClient.end();
   }
 }

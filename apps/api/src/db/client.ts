@@ -27,6 +27,10 @@ export function createDatabaseConnection(
     application_name: options.applicationName ?? 'nhdp-api',
   });
 
+  pool.on('error', (error) => {
+    console.error('Unexpected PostgreSQL error on an idle pool client.', error);
+  });
+
   return {
     pool,
     db: drizzle(pool, { schema }),

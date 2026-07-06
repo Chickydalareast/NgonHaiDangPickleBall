@@ -13,6 +13,7 @@ const apiEnvironmentSchema = z.object({
     ),
   SESSION_SECRET: z.string().min(32),
   WEB_ORIGIN: z.url(),
+  APP_COMMIT_SHA: z.string().trim().min(1).max(64).default('unknown'),
 });
 
 export type ApiEnvironment = z.infer<typeof apiEnvironmentSchema>;

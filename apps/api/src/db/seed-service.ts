@@ -122,7 +122,7 @@ export async function seedDatabase(
       async (client) => {
         const tx = drizzle(client);
 
-        const [venue] = await tx
+        await tx
           .insert(venues)
           .values({
             name: 'Ngon Hải Đăng Pickleball',
@@ -131,20 +131,16 @@ export async function seedDatabase(
             currency: 'VND',
             status: 'ACTIVE',
           })
-          .onConflictDoUpdate({
-            target: venues.slug,
-            set: {
-              name: 'Ngon Hải Đăng Pickleball',
-              timezone: 'Asia/Ho_Chi_Minh',
-              currency: 'VND',
-              status: 'ACTIVE',
-              updatedAt: sql`now()`,
-            },
-          })
-          .returning({ id: venues.id });
+          .onConflictDoNothing({ target: venues.slug });
+
+        const [venue] = await tx
+          .select({ id: venues.id })
+          .from(venues)
+          .where(eq(venues.slug, 'ngon-hai-dang-pickleball'))
+          .limit(1);
 
         if (!venue) {
-          throw new Error('Venue seed did not return an id.');
+          throw new Error('Venue seed did not resolve an id.');
         }
 
         for (const servicePoint of seedServicePoints) {
@@ -160,27 +156,27 @@ export async function seedDatabase(
         const categoryIds = new Map<string, string>();
 
         for (const category of seedCategories) {
-          const [seededCategory] = await tx
+          await tx
             .insert(catalogCategories)
             .values({
               venueId: venue.id,
               ...category,
               status: 'ACTIVE',
             })
-            .onConflictDoUpdate({
+            .onConflictDoNothing({
               target: [catalogCategories.venueId, catalogCategories.slug],
-              set: {
-                name: category.name,
-                description: category.description,
-                status: 'ACTIVE',
-                sortOrder: category.sortOrder,
-                updatedAt: sql`now()`,
-              },
-            })
-            .returning({
+            });
+
+          const [seededCategory] = await tx
+            .select({
               id: catalogCategories.id,
               slug: catalogCategories.slug,
-            });
+            })
+            .from(catalogCategories)
+            .where(
+              sql`${catalogCategories.venueId} = ${venue.id} AND ${catalogCategories.slug} = ${category.slug}`,
+            )
+            .limit(1);
 
           if (!seededCategory) {
             throw new Error(`Category seed failed for ${category.slug}.`);
@@ -209,18 +205,8 @@ export async function seedDatabase(
               isAvailable: true,
               sortOrder: item.sortOrder,
             })
-            .onConflictDoUpdate({
+            .onConflictDoNothing({
               target: [catalogItems.venueId, catalogItems.slug],
-              set: {
-                categoryId,
-                name: item.name,
-                unitName: item.unitName,
-                priceVnd: item.priceVnd,
-                status: 'ACTIVE',
-                isAvailable: true,
-                sortOrder: item.sortOrder,
-                updatedAt: sql`now()`,
-              },
             });
         }
 

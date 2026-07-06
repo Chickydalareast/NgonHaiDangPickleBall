@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { createOrderRequestSchema, type AdminRealtimeEvent } from '@nhdp/contracts';
 import { Client } from 'pg';
 
-import { readDatabaseEnvironment } from '../config/database-environment.js';
+import { readDatabaseEnvironment, readSeedEnvironment } from '../config/database-environment.js';
+import { dropVerificationDatabase } from '../db/verification-database.js';
 import { createDatabaseConnection } from '../db/client.js';
 import { runMigrations } from '../db/migrations.js';
 import { seedDatabase } from '../db/seed-service.js';
@@ -27,6 +28,7 @@ function quoteIdentifier(identifier: string): string {
 }
 
 async function main(): Promise<void> {
+  const seedEnvironment = readSeedEnvironment();
   const sourceUrl = new URL(readDatabaseEnvironment().DATABASE_URL);
   const databaseName = `nhdp_step8_verify_${Date.now()}`;
   const adminUrl = new URL(sourceUrl);
@@ -62,7 +64,13 @@ async function main(): Promise<void> {
     try {
       const admin = (
         await database.pool.query<{ id: string }>(
-          `SELECT id FROM admin_users WHERE username = 'admin' LIMIT 1`,
+          `
+          SELECT id
+          FROM admin_users
+          WHERE username = $1
+          LIMIT 1
+        `,
+          [seedEnvironment.ADMIN_SEED_USERNAME],
         )
       ).rows[0];
       const servicePoint = (
@@ -223,9 +231,7 @@ async function main(): Promise<void> {
       await database.pool.end();
     }
   } finally {
-    await adminClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(databaseName)} WITH (FORCE)`,
-    );
+    await dropVerificationDatabase(adminClient, databaseName);
     await adminClient.end();
   }
 }

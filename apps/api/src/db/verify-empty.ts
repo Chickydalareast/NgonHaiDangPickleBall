@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 
 import { Client } from 'pg';
 
+import { dropVerificationDatabase } from './verification-database.js';
+
 import { readDatabaseEnvironment } from '../config/database-environment.js';
 import { runMigrations } from './migrations.js';
 import { seedDatabase } from './seed-service.js';
@@ -45,9 +47,48 @@ async function verifyEmptyDatabase(): Promise<void> {
       venues: 1,
     });
 
-    await runMigrations(verificationUrl.toString());
-    await seedDatabase(verificationUrl.toString());
-    await verifyDatabaseFoundation(verificationUrl.toString());
+    const operationalClient = new Client({
+      connectionString: verificationUrl.toString(),
+      application_name: 'nhdp-seed-preservation-verifier',
+    });
+
+    await operationalClient.connect();
+
+    try {
+      await operationalClient.query(
+        `UPDATE venues SET name = 'Operational venue name' WHERE slug = 'ngon-hai-dang-pickleball'`,
+      );
+      await operationalClient.query(
+        `UPDATE catalog_items SET price_vnd = 12345, is_available = false WHERE slug = 'nuoc-suoi-500ml'`,
+      );
+
+      await runMigrations(verificationUrl.toString());
+      await seedDatabase(verificationUrl.toString());
+      await verifyDatabaseFoundation(verificationUrl.toString());
+
+      const preserved = await operationalClient.query<{
+        venueName: string;
+        priceVnd: number;
+        isAvailable: boolean;
+      }>(`
+        SELECT
+          venues.name AS "venueName",
+          catalog_items.price_vnd AS "priceVnd",
+          catalog_items.is_available AS "isAvailable"
+        FROM venues
+        JOIN catalog_items ON catalog_items.venue_id = venues.id
+        WHERE venues.slug = 'ngon-hai-dang-pickleball'
+          AND catalog_items.slug = 'nuoc-suoi-500ml'
+      `);
+
+      assert.deepEqual(preserved.rows[0], {
+        venueName: 'Operational venue name',
+        priceVnd: 12345,
+        isAvailable: false,
+      });
+    } finally {
+      await operationalClient.end();
+    }
 
     const secondCounts = await readSeedCounts(verificationUrl.toString());
 
@@ -56,9 +97,7 @@ async function verifyEmptyDatabase(): Promise<void> {
     console.log('Empty database migration + seed verification PASS.');
     console.log(JSON.stringify(secondCounts, null, 2));
   } finally {
-    await adminClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(verificationDatabase)} WITH (FORCE)`,
-    );
+    await dropVerificationDatabase(adminClient, verificationDatabase);
     await adminClient.end();
   }
 }

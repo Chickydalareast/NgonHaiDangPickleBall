@@ -141,7 +141,7 @@ pnpm operations:verify
 
 ## Step 8 — Bill completion
 
-Admin chỉ hoàn tất bill khi mọi order đã `SERVED` hoặc `CANCELLED`. Completion khóa theo sân và bill, tính lại tổng server-side, chuyển bill sang `COMPLETED`, phát `bill.completed`, đưa sân về trạng thái rảnh và bảo đảm order tiếp theo tạo bill mới.
+Order `PENDING` hoặc `ACCEPTED` không chặn settlement, checkout hoặc hoàn tất bill. Completion vẫn khóa theo sân và bill, tính lại tổng server-side, chuyển bill sang `COMPLETED`, phát `bill.completed`, đưa sân về trạng thái rảnh và bảo đảm order tiếp theo tạo bill mới.
 
 ```bash
 pnpm bills:verify:db
@@ -253,4 +253,8 @@ pnpm step10pro:verify:db
 pnpm step10pro:verify
 ```
 
-The full Step 10.PRO branch remains uncommitted until Parts A–E pass CTO review. It is then committed and fast-forward merged once as one operational-completion change set.
+Step 10.PRO and the final UI redesign are complete in local `main`. Step 11 adds production-readiness, CI/CD foundations, backup and rollback procedures before the first VPS deployment.
+
+## Production operations
+
+Production Compose, backup, restore and rollback procedures are documented in [`docs/PRODUCTION_RUNBOOK.md`](docs/PRODUCTION_RUNBOOK.md).
