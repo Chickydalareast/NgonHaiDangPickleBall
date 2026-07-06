@@ -1,16 +1,17 @@
+import type { AdminDashboardServicePoint } from '@nhdp/contracts';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
+import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
+import { AdminPageHeader } from '../components/admin-page-header';
 import {
   AdminApiError,
   getAdminDashboard,
   getAdminSession,
   logoutAdmin,
   openAdminBillForServicePoint,
-  resolveAdminServiceRequest,
 } from '../lib/admin-api';
-import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
 
 const moneyFormatter = new Intl.NumberFormat('vi-VN', {
   style: 'currency',
@@ -18,20 +19,182 @@ const moneyFormatter = new Intl.NumberFormat('vi-VN', {
   maximumFractionDigits: 0,
 });
 
+const EMPTY_SERVICE_POINTS: AdminDashboardServicePoint[] = [];
+
+type DashboardFilter = 'ALL' | 'ACTIVE' | 'PENDING' | 'ALERT' | 'INACTIVE';
+
 function isAuthenticationError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+function ArrowIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  );
+}
+
+function isCenterCourt(servicePoint: AdminDashboardServicePoint): boolean {
+  if (servicePoint.slug === 'san-03') {
+    return true;
+  }
+
+  const numericCode = Number.parseInt(servicePoint.code.replace(/\D/g, ''), 10);
+  return numericCode === 3;
+}
+
+function courtState(servicePoint: AdminDashboardServicePoint): {
+  label: string;
+  className: string;
+  operationallyActive: boolean;
+} {
+  if (servicePoint.status === 'INACTIVE') {
+    return {
+      label: 'Đang tắt',
+      className: 'is-inactive',
+      operationallyActive: false,
+    };
+  }
+
+  if (servicePoint.billLifecycleState === 'OPEN_ACTIVE') {
+    return {
+      label: 'Đang hoạt động',
+      className: 'is-active',
+      operationallyActive: true,
+    };
+  }
+
+  return {
+    label: 'Đang rảnh',
+    className: 'is-idle',
+    operationallyActive: false,
+  };
+}
+
+function CourtCard({
+  servicePoint,
+  openingBill,
+  onOpenBill,
+}: {
+  servicePoint: AdminDashboardServicePoint;
+  openingBill: boolean;
+  onOpenBill: (servicePointId: string) => void;
+}) {
+  const state = courtState(servicePoint);
+  const hasAlert = servicePoint.hasPendingServiceRequest;
+  const billStateLabel = servicePoint.openBill
+    ? servicePoint.billLifecycleState === 'OPEN_EMPTY'
+      ? 'Bill trống'
+      : 'Đang mở'
+    : 'Chưa mở';
+
+  return (
+    <article className={`admin-court-card ${state.className}${hasAlert ? ' has-alert' : ''}`}>
+      <div className="admin-court-card-body">
+        <div className="admin-court-card-top">
+          <span className="admin-court-code">{servicePoint.code}</span>
+          <span className="admin-court-status">{state.label}</span>
+        </div>
+
+        <h2>{servicePoint.name}</h2>
+
+        {isCenterCourt(servicePoint) || hasAlert ? (
+          <div className="admin-court-badges">
+            {isCenterCourt(servicePoint) ? (
+              <span className="admin-court-premium">Trung tâm · +30.000 ₫/giờ</span>
+            ) : null}
+
+            {hasAlert ? <span className="admin-court-alert-chip">Gọi nhân viên</span> : null}
+          </div>
+        ) : null}
+
+        <dl className="admin-court-metrics">
+          <div>
+            <dt>Tạm tính</dt>
+            <dd>{moneyFormatter.format(servicePoint.openBill?.totalVnd ?? 0)}</dd>
+          </div>
+          <div>
+            <dt>Order chờ</dt>
+            <dd>{servicePoint.pendingOrderCount}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div className="admin-court-card-footer">
+        <span>{billStateLabel}</span>
+
+        {servicePoint.openBill ? (
+          <Link to={`/admin/bills/${servicePoint.openBill.id}`} className="admin-court-card-action">
+            {state.operationallyActive ? 'Xử lý bill' : 'Thêm phí / món'}
+            <ArrowIcon />
+          </Link>
+        ) : servicePoint.status === 'ACTIVE' ? (
+          <button
+            type="button"
+            className="admin-court-card-action"
+            disabled={openingBill}
+            onClick={() => onOpenBill(servicePoint.id)}
+          >
+            {openingBill ? 'Đang mở…' : 'Mở bill'}
+            <ArrowIcon />
+          </button>
+        ) : (
+          <span className="admin-court-card-disabled">Đang tắt</span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function DashboardLoading() {
+  return (
+    <main className="admin-dashboard-page" aria-busy="true">
+      <div className="admin-dashboard-shell">
+        <div className="admin-dashboard-loading-header">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="admin-dashboard-loading-grid">
+          {Array.from({ length: 10 }).map((_, index) => (
+            <div className="admin-dashboard-loading-card" key={index}>
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          ))}
+        </div>
+      </div>
+    </main>
+  );
 }
 
 export function AdminDashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [filter, setFilter] = useState<DashboardFilter>('ALL');
+  const [search, setSearch] = useState('');
+
   const sessionQuery = useQuery({
     queryKey: ['admin', 'session'],
     queryFn: getAdminSession,
     retry: false,
     staleTime: 60_000,
   });
+
   const { realtimeStatus } = useAdminAlertRuntime();
+
   const dashboardQuery = useQuery({
     queryKey: ['admin', 'dashboard'],
     queryFn: getAdminDashboard,
@@ -40,6 +203,7 @@ export function AdminDashboardPage() {
     staleTime: 10_000,
     refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
   });
+
   const logoutMutation = useMutation({
     mutationFn: logoutAdmin,
     onSettled() {
@@ -47,18 +211,12 @@ export function AdminDashboardPage() {
       void navigate('/admin/login', { replace: true });
     },
   });
+
   const openBillMutation = useMutation({
     mutationFn: openAdminBillForServicePoint,
     async onSuccess(detail) {
       await queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
       void navigate(`/admin/bills/${detail.bill.id}`);
-    },
-  });
-
-  const resolveServiceRequestMutation = useMutation({
-    mutationFn: resolveAdminServiceRequest,
-    onSuccess() {
-      void queryClient.invalidateQueries({ queryKey: ['admin', 'dashboard'] });
     },
   });
 
@@ -79,12 +237,50 @@ export function AdminDashboardPage() {
     sessionQuery.isError,
   ]);
 
+  const servicePoints = dashboardQuery.data?.servicePoints ?? EMPTY_SERVICE_POINTS;
+
+  const summary = useMemo(
+    () => ({
+      activeCount: servicePoints.filter(
+        (servicePoint) => servicePoint.billLifecycleState === 'OPEN_ACTIVE',
+      ).length,
+      pendingOrderCount: servicePoints.reduce(
+        (total, servicePoint) => total + servicePoint.pendingOrderCount,
+        0,
+      ),
+      provisionalTotalVnd: servicePoints.reduce(
+        (total, servicePoint) => total + (servicePoint.openBill?.totalVnd ?? 0),
+        0,
+      ),
+    }),
+    [servicePoints],
+  );
+
+  const visibleServicePoints = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase('vi-VN');
+
+    return servicePoints.filter((servicePoint) => {
+      const state = courtState(servicePoint);
+      const matchesFilter =
+        filter === 'ALL' ||
+        (filter === 'ACTIVE' && state.operationallyActive) ||
+        (filter === 'PENDING' && servicePoint.pendingOrderCount > 0) ||
+        (filter === 'ALERT' && servicePoint.hasPendingServiceRequest) ||
+        (filter === 'INACTIVE' && servicePoint.status === 'INACTIVE');
+
+      const matchesSearch =
+        query.length === 0 ||
+        [servicePoint.code, servicePoint.name, state.label]
+          .join(' ')
+          .toLocaleLowerCase('vi-VN')
+          .includes(query);
+
+      return matchesFilter && matchesSearch;
+    });
+  }, [filter, search, servicePoints]);
+
   if (sessionQuery.isPending || (sessionQuery.isSuccess && dashboardQuery.isPending)) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-surface text-ink">
-        <p className="font-bold text-muted">Đang tải dashboard…</p>
-      </main>
-    );
+    return <DashboardLoading />;
   }
 
   if (
@@ -94,16 +290,16 @@ export function AdminDashboardPage() {
     !dashboardQuery.data
   ) {
     return (
-      <main className="grid min-h-screen place-items-center bg-surface px-5 text-ink">
-        <section className="max-w-md rounded-2xl border border-line bg-white p-6 text-center shadow-panel">
-          <h1 className="text-xl font-black">Không thể tải dashboard</h1>
-          <p className="mt-2 text-sm text-muted">Kiểm tra kết nối rồi tải lại trang.</p>
+      <main className="admin-dashboard-page">
+        <section className="admin-dashboard-state-card">
+          <span>Không thể tải dashboard</span>
+          <h1>Đường truyền đang gián đoạn</h1>
+          <p>Kiểm tra kết nối rồi thử tải lại dữ liệu vận hành.</p>
           <button
             type="button"
             onClick={() => {
               void queryClient.invalidateQueries({ queryKey: ['admin'] });
             }}
-            className="mt-5 rounded-xl bg-brand px-5 py-3 font-bold text-white"
           >
             Thử lại
           </button>
@@ -113,187 +309,112 @@ export function AdminDashboardPage() {
   }
 
   const { admin } = sessionQuery.data;
-  const { servicePoints } = dashboardQuery.data;
 
   return (
-    <main className="min-h-screen bg-surface px-4 py-6 text-ink sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="flex flex-col gap-4 rounded-3xl border border-line bg-white p-5 shadow-panel sm:flex-row sm:items-center sm:justify-between sm:p-6">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.16em] text-brand">Quản trị sân</p>
-            <h1 className="mt-2 text-3xl font-black">Tổng quan hiện tại</h1>
-            <p className="mt-2 text-sm text-muted">
-              Xin chào {admin.displayName} · @{admin.username}
-            </p>
+    <main className="admin-dashboard-page">
+      <div className="admin-dashboard-shell">
+        <AdminPageHeader
+          activePage="dashboard"
+          admin={admin}
+          realtimeStatus={realtimeStatus}
+          logoutPending={logoutMutation.isPending}
+          onLogout={() => logoutMutation.mutate()}
+        />
+
+        <section className="admin-dashboard-content">
+          <div className="admin-dashboard-title-row">
+            <div>
+              <h1>Quản lý cụm sân</h1>
+              <p>Bill, order và hỗ trợ realtime.</p>
+            </div>
+
+            <dl className="admin-dashboard-kpis">
+              <div>
+                <dt>Sân hoạt động</dt>
+                <dd>
+                  {summary.activeCount}/{servicePoints.length}
+                </dd>
+              </div>
+              <div>
+                <dt>Order chờ</dt>
+                <dd>{summary.pendingOrderCount}</dd>
+              </div>
+              <div>
+                <dt>Tạm tính</dt>
+                <dd>{moneyFormatter.format(summary.provisionalTotalVnd)}</dd>
+              </div>
+            </dl>
           </div>
-          <div className="flex flex-col items-start gap-3 sm:items-end">
-            <p
-              className={`rounded-full px-3 py-1 text-xs font-black ${
-                realtimeStatus === 'connected'
-                  ? 'bg-success-soft text-success'
-                  : 'bg-neutral-soft text-muted'
-              }`}
-            >
-              {realtimeStatus === 'connected'
-                ? 'Realtime đang kết nối'
-                : 'Polling dự phòng mỗi 15 giây'}
+
+          <div className="admin-dashboard-toolbar">
+            <div className="admin-dashboard-filters" role="group" aria-label="Lọc sân">
+              {[
+                ['ALL', 'Tất cả'],
+                ['ACTIVE', 'Hoạt động'],
+                ['PENDING', 'Order chờ'],
+                ['ALERT', 'Gọi NV'],
+                ['INACTIVE', 'Đang tắt'],
+              ].map(([value, label]) => (
+                <button
+                  type="button"
+                  className={filter === value ? 'is-active' : ''}
+                  aria-pressed={filter === value}
+                  key={value}
+                  onClick={() => setFilter(value as DashboardFilter)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <label className="admin-dashboard-search">
+              <SearchIcon />
+              <span className="sr-only">Tìm sân</span>
+              <input
+                type="search"
+                value={search}
+                placeholder="Tìm sân…"
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+          </div>
+
+          {openBillMutation.isError ? (
+            <p className="admin-dashboard-inline-error" role="alert">
+              {openBillMutation.error instanceof Error
+                ? openBillMutation.error.message
+                : 'Không thể mở bill cho sân.'}
             </p>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to="/admin/catalog"
-                className="rounded-xl border border-brand px-4 py-3 font-black text-brand"
-              >
-                Quản lý catalog
-              </Link>
-              <Link
-                to="/admin/service-points"
-                className="rounded-xl border border-line px-4 py-3 font-black text-ink"
-              >
-                Sân và QR
-              </Link>
+          ) : null}
+
+          {visibleServicePoints.length > 0 ? (
+            <section className="admin-court-grid" aria-label="Danh sách sân">
+              {visibleServicePoints.map((servicePoint) => (
+                <CourtCard
+                  key={servicePoint.id}
+                  servicePoint={servicePoint}
+                  openingBill={
+                    openBillMutation.isPending && openBillMutation.variables === servicePoint.id
+                  }
+                  onOpenBill={(servicePointId) => openBillMutation.mutate(servicePointId)}
+                />
+              ))}
+            </section>
+          ) : (
+            <section className="admin-dashboard-empty">
+              <strong>Không tìm thấy sân phù hợp</strong>
+              <p>Đổi bộ lọc hoặc xóa nội dung tìm kiếm để xem lại toàn bộ sân.</p>
               <button
                 type="button"
-                disabled={logoutMutation.isPending}
-                onClick={() => logoutMutation.mutate()}
-                className="rounded-xl border border-line px-4 py-3 font-bold transition hover:border-brand hover:text-brand disabled:opacity-60"
+                onClick={() => {
+                  setFilter('ALL');
+                  setSearch('');
+                }}
               >
-                {logoutMutation.isPending ? 'Đang đăng xuất…' : 'Đăng xuất'}
+                Hiển thị tất cả
               </button>
-            </div>
-          </div>
-        </header>
-
-        {resolveServiceRequestMutation.isError ? (
-          <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 text-sm font-bold text-danger">
-            {resolveServiceRequestMutation.error instanceof Error
-              ? resolveServiceRequestMutation.error.message
-              : 'Không thể xác nhận yêu cầu hỗ trợ.'}
-          </p>
-        ) : null}
-
-        <section className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {servicePoints.map((servicePoint) => {
-            const isOperationallyActive = servicePoint.billLifecycleState === 'OPEN_ACTIVE';
-            const courtState =
-              servicePoint.status === 'INACTIVE'
-                ? 'Đang tắt'
-                : isOperationallyActive
-                  ? 'Đang hoạt động'
-                  : 'Đang rảnh';
-
-            return (
-              <article
-                key={servicePoint.id}
-                className="rounded-2xl border border-line bg-white p-5 shadow-panel"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
-                      {servicePoint.code}
-                    </p>
-                    <h2 className="mt-1 text-2xl font-black">{servicePoint.name}</h2>
-                    <p className="mt-1 text-sm text-muted">{servicePoint.venueName}</p>
-                  </div>
-                  <span
-                    className={`rounded-full px-3 py-1 text-xs font-black ${
-                      servicePoint.status === 'INACTIVE'
-                        ? 'bg-neutral-soft text-muted'
-                        : isOperationallyActive
-                          ? 'bg-danger-soft text-danger'
-                          : 'bg-success-soft text-success'
-                    }`}
-                  >
-                    {courtState}
-                  </span>
-                </div>
-
-                <dl className="mt-6 grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-neutral-soft p-3">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-muted">
-                      Bill tạm tính
-                    </dt>
-                    <dd className="mt-2 text-lg font-black">
-                      {moneyFormatter.format(servicePoint.openBill?.totalVnd ?? 0)}
-                    </dd>
-                  </div>
-                  <div className="rounded-xl bg-neutral-soft p-3">
-                    <dt className="text-xs font-bold uppercase tracking-wide text-muted">
-                      Order đang chờ
-                    </dt>
-                    <dd className="mt-2 text-lg font-black">{servicePoint.pendingOrderCount}</dd>
-                  </div>
-                </dl>
-
-                {servicePoint.openBill ? (
-                  <Link
-                    to={`/admin/bills/${servicePoint.openBill.id}`}
-                    className={`mt-4 flex w-full justify-center rounded-xl px-4 py-3 text-sm font-black ${
-                      isOperationallyActive
-                        ? 'bg-brand text-white'
-                        : 'border border-brand text-brand'
-                    }`}
-                  >
-                    {isOperationallyActive
-                      ? 'Mở bill và xử lý order'
-                      : 'Thêm phí sân hoặc sản phẩm'}
-                  </Link>
-                ) : servicePoint.status === 'ACTIVE' ? (
-                  <button
-                    type="button"
-                    disabled={
-                      openBillMutation.isPending && openBillMutation.variables === servicePoint.id
-                    }
-                    onClick={() => openBillMutation.mutate(servicePoint.id)}
-                    className="mt-4 flex w-full justify-center rounded-xl border border-brand px-4 py-3 text-sm font-black text-brand disabled:opacity-50"
-                  >
-                    {openBillMutation.isPending && openBillMutation.variables === servicePoint.id
-                      ? 'Đang mở bill…'
-                      : 'Mở bill để thêm phí sân'}
-                  </button>
-                ) : null}
-
-                {servicePoint.pendingServiceRequest ? (
-                  <div className="mt-4 rounded-xl border border-danger/20 bg-danger-soft px-4 py-4">
-                    <p className="text-sm font-black text-danger">Sân đang gọi nhân viên</p>
-                    <p className="mt-1 text-xs font-semibold text-muted">
-                      Gửi lúc{' '}
-                      {new Intl.DateTimeFormat('vi-VN', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      }).format(new Date(servicePoint.pendingServiceRequest.createdAt))}
-                    </p>
-                    {servicePoint.pendingServiceRequest.message ? (
-                      <p className="mt-2 rounded-lg bg-white/70 px-3 py-2 text-sm font-semibold text-ink">
-                        {servicePoint.pendingServiceRequest.message}
-                      </p>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={
-                        resolveServiceRequestMutation.isPending &&
-                        resolveServiceRequestMutation.variables ===
-                          servicePoint.pendingServiceRequest.id
-                      }
-                      onClick={() =>
-                        resolveServiceRequestMutation.mutate(servicePoint.pendingServiceRequest!.id)
-                      }
-                      className="mt-3 w-full rounded-lg bg-danger px-3 py-2 text-sm font-black text-white disabled:opacity-60"
-                    >
-                      {resolveServiceRequestMutation.isPending &&
-                      resolveServiceRequestMutation.variables ===
-                        servicePoint.pendingServiceRequest.id
-                        ? 'Đang xác nhận…'
-                        : 'Đã đến hỗ trợ'}
-                    </button>
-                  </div>
-                ) : (
-                  <p className="mt-4 rounded-xl bg-success-soft px-4 py-3 text-sm font-bold text-success">
-                    Không có yêu cầu hỗ trợ đang chờ
-                  </p>
-                )}
-              </article>
-            );
-          })}
+            </section>
+          )}
         </section>
       </div>
     </main>

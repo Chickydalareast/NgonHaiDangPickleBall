@@ -1,6 +1,3 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router';
 import type {
   AdminBillDetailResponse,
   AdminBillOrderLine,
@@ -9,20 +6,26 @@ import type {
   CreateAdminSettlementRequest,
   UpdateAdminCustomChargeRequest,
 } from '@nhdp/contracts';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams } from 'react-router';
 
 import { ActionDialog } from '../components/action-dialog';
+import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
+import { AdminPageHeader } from '../components/admin-page-header';
 import {
   AdminApiError,
   acknowledgeAdminBillOrderAlerts,
   addAdminBillItem,
-  createAdminCourtRental,
-  createAdminPaymentBatch,
   completeAdminBill,
+  createAdminCourtRental,
   createAdminCustomCharge,
+  createAdminPaymentBatch,
   createAdminSettlement,
   getAdminBill,
   getAdminCheckoutPreview,
   getAdminSession,
+  logoutAdmin,
   reverseAdminSettlement,
   updateAdminCustomCharge,
   updateAdminOrderLine,
@@ -30,7 +33,6 @@ import {
   voidAdminCustomCharge,
   voidAdminOrderLine,
 } from '../lib/admin-api';
-import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
 import { buildCloudinaryImageUrl } from '../lib/cloudinary-image';
 import { fetchPublicServicePointContext } from '../lib/public-context-api';
 
@@ -38,6 +40,10 @@ const moneyFormatter = new Intl.NumberFormat('vi-VN', {
   style: 'currency',
   currency: 'VND',
   maximumFractionDigits: 0,
+});
+const timeFormatter = new Intl.DateTimeFormat('vi-VN', {
+  hour: '2-digit',
+  minute: '2-digit',
 });
 
 const orderStatusLabel = {
@@ -48,9 +54,9 @@ const orderStatusLabel = {
 } as const;
 
 const lineKindLabel = {
-  CATALOG: 'Món trong menu',
-  MANUAL_PRODUCT: 'Mặt hàng custom',
-  MANUAL_TIME: 'Phí thuê sân',
+  CATALOG: 'Món menu',
+  MANUAL_PRODUCT: 'Khoản custom',
+  MANUAL_TIME: 'Thuê sân',
 } as const;
 
 type AddMode = 'CATALOG' | 'MANUAL_PRODUCT' | 'COURT_RENTAL';
@@ -59,26 +65,21 @@ interface CancelTarget {
   orderId: string;
   label: string;
 }
-
 interface QuantityTarget {
   lineId: string;
   itemName: string;
-  quantity: number;
 }
-
 interface VoidTarget {
   lineId: string;
   itemName: string;
   custom: boolean;
 }
-
 interface SettlementTarget {
   lineId: string;
   itemName: string;
   outstandingQuantity: number;
   unitPriceVnd: number;
 }
-
 interface ReverseTarget {
   settlementId: string;
   itemName: string;
@@ -86,17 +87,103 @@ interface ReverseTarget {
   quantity: number;
 }
 
+function Icon({ children, className }: { children: ReactNode; className?: string | undefined }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.9"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {children}
+    </svg>
+  );
+}
+
+const ArrowLeft = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="m15 18-6-6 6-6" />
+  </Icon>
+);
+const Chevron = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="m6 9 6 6 6-6" />
+  </Icon>
+);
+const Receipt = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" />
+    <path d="M9 8h6M9 12h6" />
+  </Icon>
+);
+const Search = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <circle cx="11" cy="11" r="7" />
+    <path d="m20 20-4-4" />
+  </Icon>
+);
+const Plus = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="M12 5v14M5 12h14" />
+  </Icon>
+);
+const Clock = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7v5l3 2" />
+  </Icon>
+);
+const Check = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8 12 2.5 2.5L16 9" />
+  </Icon>
+);
+const External = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="M14 3h7v7M10 14 21 3M21 14v7h-7M3 10V3h7M3 14v7h7" />
+  </Icon>
+);
+const Package = ({ className }: { className?: string }) => (
+  <Icon className={className}>
+    <path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z" />
+    <path d="m4.5 7.8 7.5 4.3 7.5-4.3M12 12.1V21" />
+  </Icon>
+);
+
 function isAuthenticationError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
 }
-
 function hasActiveSettlements(line: AdminBillOrderLine): boolean {
   return line.settlements.some((settlement) => settlement.status === 'ACTIVE');
 }
-
 function clampQuantity(value: number, maximum: number): number {
   if (!Number.isFinite(value)) return 1;
   return Math.min(Math.max(Math.trunc(value), 1), maximum);
+}
+function lineImageUrl(cloudName: string | null, line: AdminBillOrderLine): string | null {
+  if (!line.imagePublicId) return null;
+  return buildCloudinaryImageUrl(
+    cloudName,
+    { publicId: line.imagePublicId, version: null, format: null },
+    'f_auto,q_auto,c_fill,w_180,h_180',
+  );
+}
+
+function LoadingState() {
+  return (
+    <main className="ab-page ab-state-page" aria-busy="true">
+      <section className="ab-state-card">
+        <span className="ab-spinner" />
+        <h1>Đang tải bill</h1>
+        <p>Đang đồng bộ dữ liệu vận hành và số tiền từ máy chủ.</p>
+      </section>
+    </main>
+  );
 }
 
 export function AdminBillPage() {
@@ -105,15 +192,14 @@ export function AdminBillPage() {
   const queryClient = useQueryClient();
 
   const [addMode, setAddMode] = useState<AddMode>('CATALOG');
+  const [menuCollapsed, setMenuCollapsed] = useState(false);
   const [catalogSearch, setCatalogSearch] = useState('');
   const [catalogCategoryId, setCatalogCategoryId] = useState('ALL');
   const [catalogQuantities, setCatalogQuantities] = useState<Record<string, number>>({});
-
   const [manualName, setManualName] = useState('');
   const [manualUnitName, setManualUnitName] = useState('phần');
   const [manualQuantity, setManualQuantity] = useState(1);
   const [manualUnitPriceVnd, setManualUnitPriceVnd] = useState(0);
-
   const [courtStartTime, setCourtStartTime] = useState('16:30');
   const [courtDurationHours, setCourtDurationHours] = useState(1);
 
@@ -144,6 +230,13 @@ export function AdminBillPage() {
     queryFn: getAdminSession,
     retry: false,
     staleTime: 60_000,
+  });
+  const logoutMutation = useMutation({
+    mutationFn: logoutAdmin,
+    onSettled() {
+      queryClient.removeQueries({ queryKey: ['admin'] });
+      void navigate('/admin/login', { replace: true });
+    },
   });
   const { realtimeStatus } = useAdminAlertRuntime();
   const billQuery = useQuery({
@@ -415,26 +508,16 @@ export function AdminBillPage() {
       .filter((category) => category.items.length > 0);
   }, [catalogCategoryId, catalogSearch, menuQuery.data]);
 
-  if (sessionQuery.isPending || billQuery.isPending) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-surface font-bold text-muted">
-        Đang tải bill…
-      </main>
-    );
-  }
+  if (sessionQuery.isPending || billQuery.isPending) return <LoadingState />;
 
   if (!billId || sessionQuery.isError || billQuery.isError || !billQuery.data) {
     return (
-      <main className="grid min-h-screen place-items-center bg-surface px-5 text-ink">
-        <section className="max-w-md rounded-2xl border border-line bg-white p-6 text-center shadow-panel">
-          <h1 className="text-xl font-black">Không thể tải bill</h1>
-          <p className="mt-2 text-sm text-muted">Bill không tồn tại hoặc kết nối đang gián đoạn.</p>
-          <Link
-            className="mt-5 inline-flex rounded-xl bg-brand px-5 py-3 font-bold text-white"
-            to="/admin"
-          >
-            Về dashboard
-          </Link>
+      <main className="ab-page ab-state-page">
+        <section className="ab-state-card">
+          <Receipt className="ab-state-icon" />
+          <h1>Không thể tải bill</h1>
+          <p>Bill không tồn tại hoặc kết nối đang gián đoạn.</p>
+          <Link to="/admin">Về dashboard</Link>
         </section>
       </main>
     );
@@ -446,6 +529,8 @@ export function AdminBillPage() {
     (order) => order.status === 'PENDING' || order.status === 'ACCEPTED',
   ).length;
   const outstandingTotalVnd = detail.summary.outstandingTotalVnd;
+  const orderedNewestFirst = [...detail.orders].reverse();
+  const cloudName = menuQuery.data?.media.cloudName ?? null;
   const busy =
     statusMutation.isPending ||
     addCatalogItemMutation.isPending ||
@@ -470,728 +555,718 @@ export function AdminBillPage() {
     setEditBillingIntervalMinutes(line.billingIntervalMinutes ?? 30);
   };
 
-  return (
-    <main className="min-h-screen bg-surface px-4 py-6 text-ink sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="rounded-3xl border border-line bg-white p-5 shadow-panel sm:p-6">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <Link to="/admin" className="text-sm font-black text-brand">
-                ← Dashboard
-              </Link>
-              <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-muted">
-                {detail.servicePoint.code}
-              </p>
-              <h1 className="mt-1 text-3xl font-black">{detail.servicePoint.name}</h1>
-              <p className="mt-2 text-sm text-muted">{detail.venue.name}</p>
-              <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
-                <span className="rounded-full bg-neutral-soft px-3 py-1 text-muted">
-                  {realtimeStatus === 'connected'
-                    ? 'Realtime đã kết nối'
-                    : 'Polling dự phòng 15 giây'}
-                </span>
-                <a
-                  href={`/s/${detail.servicePoint.slug}/bill`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-full bg-neutral-soft px-3 py-1 text-brand"
-                >
-                  Mở bill phía khách ↗
-                </a>
-              </div>
-            </div>
+  const openSettlement = (line: AdminBillOrderLine) => {
+    setOperationError(null);
+    setSettlementTarget({
+      lineId: line.id,
+      itemName: line.itemName,
+      outstandingQuantity: line.outstandingQuantity,
+      unitPriceVnd: line.unitPriceVnd,
+    });
+    setSettlementType('PAID');
+    setSettlementQuantity(line.outstandingQuantity);
+    setSettlementReason('');
+  };
 
-            <div className="grid grid-cols-2 gap-3 lg:min-w-[520px] lg:grid-cols-4">
-              <div className="rounded-2xl bg-neutral-soft p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-muted">Tổng bill</p>
-                <p className="mt-1 text-xl font-black">
-                  {moneyFormatter.format(detail.summary.grossTotalVnd)}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-success-soft p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-success">Đã trả</p>
-                <p className="mt-1 text-xl font-black text-success">
-                  {moneyFormatter.format(detail.summary.paidTotalVnd)}
-                </p>
-              </div>
-              <div className="rounded-2xl bg-warning-soft p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-warning">Được miễn</p>
-                <p className="mt-1 text-xl font-black text-warning">
-                  {moneyFormatter.format(detail.summary.waivedTotalVnd)}
-                </p>
-              </div>
-              <div className="rounded-2xl border border-brand bg-white p-4">
-                <p className="text-xs font-bold uppercase tracking-wide text-brand">Còn lại</p>
-                <p className="mt-1 text-xl font-black text-brand">
-                  {moneyFormatter.format(outstandingTotalVnd)}
-                </p>
-              </div>
-              {isOpen ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setOperationError(null);
-                    setCheckoutOpen(true);
-                    acknowledgeCheckoutAlertsMutation.mutate();
-                  }}
-                  className="col-span-2 rounded-xl bg-success px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-50 lg:col-span-4"
-                >
-                  Tạm tính
-                </button>
-              ) : (
-                <p className="col-span-2 rounded-xl bg-success-soft px-4 py-3 text-center font-black text-success lg:col-span-4">
-                  Bill đã hoàn tất
-                </p>
-              )}
+  return (
+    <main className="ab-page">
+      <div className="ab-shell">
+        <AdminPageHeader
+          activePage="dashboard"
+          admin={sessionQuery.data.admin}
+          realtimeStatus={realtimeStatus}
+          logoutPending={logoutMutation.isPending}
+          onLogout={() => logoutMutation.mutate()}
+        />
+
+        <section className="ab-header">
+          <article className="ab-identity">
+            <Link to="/admin" className="ab-back" aria-label="Về dashboard">
+              <ArrowLeft />
+            </Link>
+            <div className="ab-identity-copy">
+              <small>
+                {detail.servicePoint.code} · {isOpen ? 'BILL MỞ' : 'ĐÃ ĐÓNG'}
+              </small>
+              <h1>{detail.servicePoint.name}</h1>
+              <p>{detail.venue.name}</p>
             </div>
+            <a
+              className="ab-public-link"
+              href={`/s/${detail.servicePoint.slug}/bill`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <External />
+              Bill khách
+            </a>
+          </article>
+
+          <div className="ab-summary">
+            <article>
+              <Receipt />
+              <span>Tổng bill</span>
+              <strong>{moneyFormatter.format(detail.summary.grossTotalVnd)}</strong>
+            </article>
+            <article className="is-paid">
+              <Check />
+              <span>Đã trả</span>
+              <strong>{moneyFormatter.format(detail.summary.paidTotalVnd)}</strong>
+            </article>
+            <article className="is-waived">
+              <i>÷</i>
+              <span>Miễn</span>
+              <strong>{moneyFormatter.format(detail.summary.waivedTotalVnd)}</strong>
+            </article>
+            <article className="is-outstanding">
+              <Clock />
+              <span>Còn lại</span>
+              <strong>{moneyFormatter.format(outstandingTotalVnd)}</strong>
+            </article>
           </div>
-        </header>
+
+          <aside className="ab-checkout-tile">
+            <span>{unresolvedOrderCount} order đang xử lý</span>
+            <strong>{moneyFormatter.format(outstandingTotalVnd)}</strong>
+            {isOpen ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setOperationError(null);
+                  setCheckoutOpen(true);
+                  acknowledgeCheckoutAlertsMutation.mutate();
+                }}
+              >
+                <Receipt />
+                Tạm tính
+              </button>
+            ) : (
+              <div className="ab-completed">
+                <Check />
+                Đã hoàn tất
+              </div>
+            )}
+          </aside>
+        </section>
 
         {operationError ? (
-          <p className="mt-4 rounded-xl bg-danger-soft px-4 py-3 font-bold text-danger">
-            {operationError}
-          </p>
+          <div className="ab-error" role="alert">
+            <strong>Không thể hoàn tất thao tác</strong>
+            <span>{operationError}</span>
+            <button type="button" onClick={() => setOperationError(null)}>
+              Đóng
+            </button>
+          </div>
         ) : null}
 
-        {isOpen && (unresolvedOrderCount > 0 || outstandingTotalVnd > 0) ? (
-          <section className="mt-4 grid gap-3 md:grid-cols-2">
-            {unresolvedOrderCount > 0 ? (
-              <p className="rounded-xl bg-neutral-soft px-4 py-3 font-bold text-muted">
-                Có {unresolvedOrderCount} order chưa xác nhận hoặc chưa đánh dấu phục vụ. Các order
-                này vẫn được tính tiền và không chặn tạm tính.
-              </p>
-            ) : null}
-            {outstandingTotalVnd > 0 ? (
-              <p className="rounded-xl bg-warning-soft px-4 py-3 font-bold text-warning">
-                Còn {moneyFormatter.format(outstandingTotalVnd)} chưa PAID hoặc WAIVED.
-              </p>
-            ) : null}
-          </section>
-        ) : null}
+        <section className={`ab-workspace ${menuCollapsed ? 'is-collapsed' : ''}`}>
+          {isOpen ? (
+            <aside className="ab-add-panel">
+              <header>
+                <div>
+                  <small>Thao tác nhanh</small>
+                  <h2>Thêm vào bill</h2>
+                </div>
+                <button
+                  type="button"
+                  className="ab-collapse"
+                  aria-label={menuCollapsed ? 'Mở menu thêm món' : 'Thu gọn menu thêm món'}
+                  onClick={() => setMenuCollapsed((current) => !current)}
+                >
+                  <ArrowLeft />
+                </button>
+              </header>
 
-        {isOpen ? (
-          <section className="mt-5 rounded-3xl border border-line bg-white p-5 shadow-panel sm:p-6">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-              <div>
-                <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand">
-                  Thao tác nhanh
-                </p>
-                <h2 className="mt-1 text-2xl font-black">Thêm khoản vào bill</h2>
-              </div>
-              <div className="grid grid-cols-3 gap-2 rounded-2xl bg-neutral-soft p-1.5">
-                {(
-                  [
-                    ['CATALOG', 'Menu'],
-                    ['MANUAL_PRODUCT', 'Custom'],
-                    ['COURT_RENTAL', 'Thuê sân'],
-                  ] as const
-                ).map(([mode, label]) => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setAddMode(mode)}
-                    className={`rounded-xl px-3 py-2.5 text-sm font-black transition ${
-                      addMode === mode ? 'bg-white text-brand shadow-sm' : 'text-muted'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {addMode === 'CATALOG' ? (
-              <div className="mt-5">
-                <div className="grid gap-3 md:grid-cols-[1fr_auto]">
-                  <input
-                    value={catalogSearch}
-                    onChange={(event) => setCatalogSearch(event.target.value)}
-                    placeholder="Tìm theo tên món, mô tả hoặc đơn vị…"
-                    className="rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                  <div className="flex gap-2 overflow-x-auto">
-                    <button
-                      type="button"
-                      onClick={() => setCatalogCategoryId('ALL')}
-                      className={`shrink-0 rounded-full border px-4 py-2 text-sm font-black ${
-                        catalogCategoryId === 'ALL'
-                          ? 'border-brand bg-brand text-white'
-                          : 'border-line'
-                      }`}
-                    >
-                      Tất cả
-                    </button>
-                    {(menuQuery.data?.categories ?? []).map((category) => (
+              {!menuCollapsed ? (
+                <>
+                  <div className="ab-mode-tabs">
+                    {(
+                      [
+                        ['CATALOG', 'Menu'],
+                        ['MANUAL_PRODUCT', 'Custom'],
+                        ['COURT_RENTAL', 'Thuê sân'],
+                      ] as const
+                    ).map(([mode, label]) => (
                       <button
-                        key={category.id}
+                        key={mode}
                         type="button"
-                        onClick={() => setCatalogCategoryId(category.id)}
-                        className={`shrink-0 rounded-full border px-4 py-2 text-sm font-black ${
-                          catalogCategoryId === category.id
-                            ? 'border-brand bg-brand text-white'
-                            : 'border-line'
-                        }`}
+                        className={addMode === mode ? 'is-active' : ''}
+                        onClick={() => setAddMode(mode)}
                       >
-                        {category.name}
+                        {label}
                       </button>
                     ))}
                   </div>
-                </div>
 
-                {menuQuery.isPending ? (
-                  <p className="mt-5 rounded-xl bg-neutral-soft p-4 font-bold text-muted">
-                    Đang tải menu…
-                  </p>
-                ) : visibleCategories.length === 0 ? (
-                  <p className="mt-5 rounded-xl border border-dashed border-line p-5 text-center font-bold text-muted">
-                    Không tìm thấy món phù hợp.
-                  </p>
-                ) : (
-                  <div className="mt-5 space-y-6">
-                    {visibleCategories.map((category) => (
-                      <div key={category.id}>
-                        <h3 className="font-black">{category.name}</h3>
-                        <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                          {category.items.map((item) => {
-                            const quantity = catalogQuantities[item.id] ?? 1;
-                            const imageUrl = buildCloudinaryImageUrl(
-                              menuQuery.data?.media.cloudName ?? null,
-                              item.image,
-                              'f_auto,q_auto,c_fill,w_160,h_160',
-                            );
-                            return (
-                              <article
-                                key={item.id}
-                                className="flex gap-3 rounded-2xl border border-line p-3"
-                              >
-                                <div className="grid size-20 shrink-0 place-items-center overflow-hidden rounded-xl bg-neutral-soft text-xl font-black text-brand">
-                                  {imageUrl ? (
-                                    <img
-                                      src={imageUrl}
-                                      alt={item.image?.alt ?? item.name}
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    item.name.slice(0, 1).toUpperCase()
-                                  )}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-black">{item.name}</p>
-                                  <p className="mt-1 text-sm font-bold text-brand">
-                                    {moneyFormatter.format(item.priceVnd)} / {item.unitName}
-                                  </p>
-                                  <div className="mt-3 flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      disabled={busy || quantity <= 1}
-                                      onClick={() =>
-                                        setCatalogQuantities((current) => ({
-                                          ...current,
-                                          [item.id]: Math.max(1, quantity - 1),
-                                        }))
-                                      }
-                                      className="grid size-9 place-items-center rounded-lg border border-line font-black disabled:opacity-40"
-                                    >
-                                      −
-                                    </button>
-                                    <span className="min-w-7 text-center font-black">
-                                      {quantity}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      disabled={busy || quantity >= 50}
-                                      onClick={() =>
-                                        setCatalogQuantities((current) => ({
-                                          ...current,
-                                          [item.id]: Math.min(50, quantity + 1),
-                                        }))
-                                      }
-                                      className="grid size-9 place-items-center rounded-lg border border-line font-black disabled:opacity-40"
-                                    >
-                                      +
-                                    </button>
-                                    <button
-                                      type="button"
-                                      disabled={busy}
-                                      onClick={() =>
-                                        addCatalogItemMutation.mutate({
-                                          catalogItemId: item.id,
-                                          quantity,
-                                        })
-                                      }
-                                      className="ml-auto rounded-lg bg-brand px-3 py-2 text-sm font-black text-white disabled:opacity-50"
-                                    >
-                                      Thêm
-                                    </button>
-                                  </div>
-                                </div>
-                              </article>
-                            );
-                          })}
+                  <div className="ab-add-scroll">
+                    {addMode === 'CATALOG' ? (
+                      <section className="ab-catalog">
+                        <label className="ab-search">
+                          <Search />
+                          <input
+                            value={catalogSearch}
+                            onChange={(event) => setCatalogSearch(event.target.value)}
+                            placeholder="Tìm món..."
+                          />
+                        </label>
+
+                        <div className="ab-categories" aria-label="Danh mục món">
+                          <button
+                            type="button"
+                            className={catalogCategoryId === 'ALL' ? 'is-active' : ''}
+                            onClick={() => setCatalogCategoryId('ALL')}
+                          >
+                            Tất cả
+                          </button>
+                          {(menuQuery.data?.categories ?? []).map((category) => (
+                            <button
+                              key={category.id}
+                              type="button"
+                              className={catalogCategoryId === category.id ? 'is-active' : ''}
+                              onClick={() => setCatalogCategoryId(category.id)}
+                            >
+                              {category.name}
+                            </button>
+                          ))}
                         </div>
-                      </div>
+
+                        {menuQuery.isPending ? (
+                          <div className="ab-inline-state">Đang tải menu…</div>
+                        ) : visibleCategories.length === 0 ? (
+                          <div className="ab-inline-state">Không tìm thấy món.</div>
+                        ) : (
+                          <div className="ab-menu-sections">
+                            {visibleCategories.map((category) => (
+                              <section key={category.id}>
+                                <h3>{category.name}</h3>
+                                <div className="ab-menu-grid">
+                                  {category.items.map((item) => {
+                                    const quantity = catalogQuantities[item.id] ?? 1;
+                                    const imageUrl = buildCloudinaryImageUrl(
+                                      cloudName,
+                                      item.image,
+                                      'f_auto,q_auto,c_fill,w_360,h_260',
+                                    );
+
+                                    return (
+                                      <article key={item.id} className="ab-menu-card">
+                                        <div className="ab-menu-image">
+                                          {imageUrl ? <img src={imageUrl} alt="" /> : <Package />}
+                                          <span>{quantity}</span>
+                                        </div>
+                                        <div className="ab-menu-copy">
+                                          <h4>{item.name}</h4>
+                                          <strong>{moneyFormatter.format(item.priceVnd)}</strong>
+                                          <div className="ab-menu-actions">
+                                            <div className="ab-stepper">
+                                              <button
+                                                type="button"
+                                                aria-label={`Giảm số lượng ${item.name}`}
+                                                disabled={quantity <= 1 || busy}
+                                                onClick={() =>
+                                                  setCatalogQuantities((current) => ({
+                                                    ...current,
+                                                    [item.id]: Math.max(1, quantity - 1),
+                                                  }))
+                                                }
+                                              >
+                                                −
+                                              </button>
+                                              <b>{quantity}</b>
+                                              <button
+                                                type="button"
+                                                aria-label={`Tăng số lượng ${item.name}`}
+                                                disabled={quantity >= 50 || busy}
+                                                onClick={() =>
+                                                  setCatalogQuantities((current) => ({
+                                                    ...current,
+                                                    [item.id]: Math.min(50, quantity + 1),
+                                                  }))
+                                                }
+                                              >
+                                                +
+                                              </button>
+                                            </div>
+                                            <button
+                                              type="button"
+                                              className="ab-add-item"
+                                              disabled={busy}
+                                              onClick={() =>
+                                                addCatalogItemMutation.mutate({
+                                                  catalogItemId: item.id,
+                                                  quantity,
+                                                })
+                                              }
+                                            >
+                                              Thêm
+                                            </button>
+                                          </div>
+                                        </div>
+                                      </article>
+                                    );
+                                  })}
+                                </div>
+                              </section>
+                            ))}
+                          </div>
+                        )}
+                      </section>
+                    ) : null}
+
+                    {addMode === 'MANUAL_PRODUCT' ? (
+                      <section className="ab-form">
+                        <label>
+                          <span>Tên khoản</span>
+                          <input
+                            value={manualName}
+                            maxLength={160}
+                            placeholder="Ví dụ: Phí hư hỏng vợt"
+                            onChange={(event) => setManualName(event.target.value)}
+                          />
+                        </label>
+                        <div className="ab-form-row">
+                          <label>
+                            <span>Đơn vị</span>
+                            <input
+                              value={manualUnitName}
+                              maxLength={40}
+                              onChange={(event) => setManualUnitName(event.target.value)}
+                            />
+                          </label>
+                          <label>
+                            <span>Số lượng</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={999}
+                              value={manualQuantity}
+                              onChange={(event) => setManualQuantity(Number(event.target.value))}
+                            />
+                          </label>
+                        </div>
+                        <label>
+                          <span>Đơn giá VND</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={2_147_483_647}
+                            value={manualUnitPriceVnd}
+                            onChange={(event) => setManualUnitPriceVnd(Number(event.target.value))}
+                          />
+                        </label>
+                        <div className="ab-estimate">
+                          <span>Dự kiến</span>
+                          <strong>
+                            {moneyFormatter.format(
+                              Math.max(0, manualQuantity * manualUnitPriceVnd),
+                            )}
+                          </strong>
+                          <i>₫</i>
+                        </div>
+                        <button
+                          type="button"
+                          className="ab-form-submit"
+                          disabled={
+                            busy ||
+                            manualName.trim().length === 0 ||
+                            manualUnitName.trim().length === 0 ||
+                            !Number.isInteger(manualQuantity) ||
+                            manualQuantity < 1 ||
+                            manualQuantity > 999 ||
+                            !Number.isInteger(manualUnitPriceVnd) ||
+                            manualUnitPriceVnd < 0
+                          }
+                          onClick={() =>
+                            createCustomChargeMutation.mutate({
+                              idempotencyKey: crypto.randomUUID(),
+                              kind: 'MANUAL_PRODUCT',
+                              name: manualName.trim(),
+                              unitName: manualUnitName.trim(),
+                              quantity: manualQuantity,
+                              unitPriceVnd: manualUnitPriceVnd,
+                            })
+                          }
+                        >
+                          {createCustomChargeMutation.isPending
+                            ? 'Đang thêm…'
+                            : 'Thêm khoản custom'}
+                        </button>
+                      </section>
+                    ) : null}
+
+                    {addMode === 'COURT_RENTAL' ? (
+                      <section className="ab-form">
+                        <div className="ab-form-row">
+                          <label>
+                            <span>Bắt đầu</span>
+                            <input
+                              type="time"
+                              step={1800}
+                              value={courtStartTime}
+                              onChange={(event) => setCourtStartTime(event.target.value)}
+                            />
+                          </label>
+                          <label>
+                            <span>Số giờ</span>
+                            <input
+                              type="number"
+                              min={1}
+                              max={24}
+                              value={courtDurationHours}
+                              onChange={(event) =>
+                                setCourtDurationHours(Number(event.target.value))
+                              }
+                            />
+                          </label>
+                        </div>
+                        <div className="ab-price-rule">
+                          <Clock />
+                          <div>
+                            <strong>Giá theo block giờ</strong>
+                            <p>
+                              05:00–17:00: 100.000đ · 17:00–19:00: 140.000đ · sau 19:00: 120.000đ.
+                            </p>
+                            <p>Sân 03 tự cộng phụ thu 30.000đ mỗi giờ.</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="ab-form-submit"
+                          disabled={
+                            busy ||
+                            !/^\d{2}:(00|30)$/u.test(courtStartTime) ||
+                            !Number.isInteger(courtDurationHours) ||
+                            courtDurationHours < 1 ||
+                            courtDurationHours > 24
+                          }
+                          onClick={() => createCourtRentalMutation.mutate()}
+                        >
+                          {createCourtRentalMutation.isPending ? 'Đang tính…' : 'Thêm phí thuê sân'}
+                        </button>
+                      </section>
+                    ) : null}
+                  </div>
+                </>
+              ) : (
+                <div className="ab-collapsed-mark">
+                  <Plus />
+                  <span>Thêm</span>
+                </div>
+              )}
+            </aside>
+          ) : null}
+
+          <section className="ab-bill-panel">
+            <header>
+              <div>
+                <small>Toàn bộ hoạt động</small>
+                <h2>Chi tiết bill</h2>
+              </div>
+              <div className="ab-bill-chips">
+                <span>{detail.orders.length} order</span>
+                <strong>{moneyFormatter.format(outstandingTotalVnd)}</strong>
+              </div>
+            </header>
+
+            <div className="ab-bill-scroll">
+              {detail.summary.items.length > 0 ? (
+                <details className="ab-overview">
+                  <summary>
+                    <div>
+                      <small>Tổng hợp theo món</small>
+                      <strong>{detail.summary.items.length} nhóm đang tính</strong>
+                    </div>
+                    <Chevron />
+                  </summary>
+                  <div>
+                    {detail.summary.items.map((item) => (
+                      <article key={`${item.lineKind}:${item.itemName}:${item.unitPriceVnd}`}>
+                        <div>
+                          <strong>{item.itemName}</strong>
+                          <span>
+                            {item.orderedQuantity} {item.unitName} · {lineKindLabel[item.lineKind]}
+                          </span>
+                        </div>
+                        <b>{moneyFormatter.format(item.grossTotalVnd)}</b>
+                      </article>
                     ))}
                   </div>
-                )}
-              </div>
-            ) : null}
+                </details>
+              ) : null}
 
-            {addMode === 'MANUAL_PRODUCT' ? (
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <label className="block md:col-span-2">
-                  <span className="text-sm font-bold">Tên mặt hàng</span>
-                  <input
-                    value={manualName}
-                    maxLength={160}
-                    disabled={busy}
-                    onChange={(event) => setManualName(event.target.value)}
-                    placeholder="Ví dụ: Khăn lạnh, phí hư hỏng…"
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-bold">Đơn vị</span>
-                  <input
-                    value={manualUnitName}
-                    maxLength={40}
-                    disabled={busy}
-                    onChange={(event) => setManualUnitName(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                </label>
-                <label className="block">
-                  <span className="text-sm font-bold">Số lượng</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={999}
-                    value={manualQuantity}
-                    disabled={busy}
-                    onChange={(event) => setManualQuantity(Number(event.target.value))}
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                </label>
-                <label className="block md:col-span-2">
-                  <span className="text-sm font-bold">Đơn giá VND</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={2_147_483_647}
-                    value={manualUnitPriceVnd}
-                    disabled={busy}
-                    onChange={(event) => setManualUnitPriceVnd(Number(event.target.value))}
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                </label>
-                <div className="rounded-xl bg-neutral-soft p-4 md:col-span-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-muted">Dự kiến</p>
-                  <p className="mt-1 text-xl font-black">
-                    {moneyFormatter.format(Math.max(0, manualQuantity * manualUnitPriceVnd))}
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Server sẽ tính và lưu giá trị chính thức.
-                  </p>
+              {orderedNewestFirst.length === 0 ? (
+                <div className="ab-empty-orders">
+                  <Receipt />
+                  <strong>Bill chưa có khoản nào</strong>
+                  <span>Chọn món hoặc thêm khoản ở menu bên trái.</span>
                 </div>
-                <button
-                  type="button"
-                  disabled={
-                    busy ||
-                    manualName.trim().length === 0 ||
-                    manualUnitName.trim().length === 0 ||
-                    !Number.isInteger(manualQuantity) ||
-                    manualQuantity < 1 ||
-                    manualQuantity > 999 ||
-                    !Number.isInteger(manualUnitPriceVnd) ||
-                    manualUnitPriceVnd < 0
-                  }
-                  onClick={() =>
-                    createCustomChargeMutation.mutate({
-                      idempotencyKey: crypto.randomUUID(),
-                      kind: 'MANUAL_PRODUCT',
-                      name: manualName.trim(),
-                      unitName: manualUnitName.trim(),
-                      quantity: manualQuantity,
-                      unitPriceVnd: manualUnitPriceVnd,
-                    })
-                  }
-                  className="rounded-xl bg-brand px-5 py-3 font-black text-white disabled:opacity-50 md:col-span-2 xl:col-span-4"
-                >
-                  {createCustomChargeMutation.isPending ? 'Đang thêm…' : 'Thêm mặt hàng custom'}
-                </button>
-              </div>
-            ) : null}
+              ) : (
+                <div className="ab-order-list">
+                  {orderedNewestFirst.map((order, displayIndex) => {
+                    const originalIndex = detail.orders.findIndex(
+                      (candidate) => candidate.id === order.id,
+                    );
+                    const orderNumber = originalIndex + 1;
 
-            {addMode === 'COURT_RENTAL' ? (
-              <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <label className="block">
-                  <span className="text-sm font-bold">Giờ bắt đầu</span>
-                  <input
-                    type="time"
-                    step={1_800}
-                    value={courtStartTime}
-                    disabled={busy}
-                    onChange={(event) => setCourtStartTime(event.target.value)}
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                  <span className="mt-2 block text-xs text-muted">
-                    Chỉ nhận mốc 00 hoặc 30 phút.
-                  </span>
-                </label>
-                <label className="block">
-                  <span className="text-sm font-bold">Số giờ thuê</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={24}
-                    value={courtDurationHours}
-                    disabled={busy}
-                    onChange={(event) => setCourtDurationHours(Number(event.target.value))}
-                    className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
-                  />
-                </label>
-                <div className="rounded-xl bg-neutral-soft p-4 md:col-span-2">
-                  <p className="text-xs font-bold uppercase tracking-wide text-muted">
-                    Quy tắc giá
-                  </p>
-                  <p className="mt-1 text-sm font-bold">
-                    05:00–17:00 · 100.000đ/giờ · 17:00–19:00 · 140.000đ/giờ · từ 19:00 ·
-                    120.000đ/giờ
-                  </p>
-                  <p className="mt-2 text-xs text-muted">
-                    Mỗi giờ lấy giá theo thời điểm bắt đầu của block. Sân 03 tự cộng phụ thu
-                    30.000đ/giờ.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  disabled={
-                    busy ||
-                    !/^([01]\d|2[0-3]):(00|30)$/.test(courtStartTime) ||
-                    !Number.isInteger(courtDurationHours) ||
-                    courtDurationHours < 1 ||
-                    courtDurationHours > 24
-                  }
-                  onClick={() => createCourtRentalMutation.mutate()}
-                  className="rounded-xl bg-brand px-5 py-3 font-black text-white disabled:opacity-50 md:col-span-2 xl:col-span-4"
-                >
-                  {createCourtRentalMutation.isPending
-                    ? 'Đang tính và thêm…'
-                    : 'Tính và thêm phí thuê sân'}
-                </button>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section className="mt-5 rounded-3xl border border-line bg-white p-5 shadow-panel sm:p-6">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.14em] text-brand">
-                Tổng hợp bill
-              </p>
-              <h2 className="mt-1 text-2xl font-black">Các khoản đang tính</h2>
-            </div>
-            <span className="text-sm font-bold text-muted">{detail.summary.items.length} nhóm</span>
-          </div>
-          <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {detail.summary.items.map((item) => (
-              <article
-                key={`${item.lineKind}:${item.catalogItemId ?? item.itemName}:${item.unitPriceVnd}`}
-                className="rounded-2xl border border-line p-4"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-black">{item.itemName}</p>
-                    <p className="mt-1 text-xs font-bold uppercase tracking-wide text-muted">
-                      {lineKindLabel[item.lineKind]} · {item.unitName}
-                    </p>
-                  </div>
-                  <strong>{moneyFormatter.format(item.grossTotalVnd)}</strong>
-                </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs font-bold">
-                  <span className="rounded-lg bg-success-soft px-2 py-2 text-success">
-                    Trả {item.paidQuantity}
-                  </span>
-                  <span className="rounded-lg bg-warning-soft px-2 py-2 text-warning">
-                    Miễn {item.waivedQuantity}
-                  </span>
-                  <span className="rounded-lg bg-neutral-soft px-2 py-2 text-muted">
-                    Còn {item.outstandingQuantity}
-                  </span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        <section className="mt-5 space-y-4">
-          {detail.orders.map((order, index) => (
-            <article
-              key={order.id}
-              className="rounded-2xl border border-line bg-white p-5 shadow-panel"
-            >
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-muted">
-                    Order #{index + 1} · {order.source === 'ADMIN' ? 'Nhân viên thêm' : 'Khách gửi'}
-                  </p>
-                  <h2 className="mt-1 text-xl font-black">
-                    {moneyFormatter.format(order.totalVnd)}
-                  </h2>
-                  {order.note ? (
-                    <p className="mt-2 text-sm text-muted">Ghi chú: {order.note}</p>
-                  ) : null}
-                  {order.cancellationReason ? (
-                    <p className="mt-2 text-sm font-bold text-danger">
-                      Lý do hủy: {order.cancellationReason}
-                    </p>
-                  ) : null}
-                </div>
-                <span className="rounded-full bg-neutral-soft px-3 py-1 text-xs font-black">
-                  {orderStatusLabel[order.status]}
-                </span>
-              </div>
-
-              <div className="mt-4 space-y-3">
-                {order.lines.map((line) => {
-                  const isCustom = line.lineKind !== 'CATALOG';
-                  const editableOrder = order.status === 'PENDING' || order.status === 'ACCEPTED';
-                  const editableLine =
-                    isOpen &&
-                    line.status === 'ACTIVE' &&
-                    editableOrder &&
-                    !hasActiveSettlements(line);
-
-                  return (
-                    <div
-                      key={line.id}
-                      className={`rounded-2xl border p-4 ${
-                        line.status === 'VOIDED'
-                          ? 'border-line bg-neutral-soft opacity-70'
-                          : 'border-line'
-                      }`}
-                    >
-                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-black">{line.itemName}</p>
-                            <span className="rounded-full bg-neutral-soft px-2 py-1 text-[11px] font-black text-muted">
-                              {lineKindLabel[line.lineKind]}
-                            </span>
-                          </div>
-                          <p className="mt-1 text-sm text-muted">
-                            {line.quantity} {line.unitName} ×{' '}
-                            {moneyFormatter.format(line.unitPriceVnd)} ={' '}
-                            <strong className="text-ink">
-                              {moneyFormatter.format(line.lineTotalVnd)}
+                    return (
+                      <details
+                        key={order.id}
+                        className={`ab-order is-${order.status.toLowerCase()}`}
+                        open={displayIndex === 0}
+                      >
+                        <summary>
+                          <div className="ab-order-title">
+                            <small>
+                              #{orderNumber} · {timeFormatter.format(new Date(order.createdAt))} ·{' '}
+                              {order.source === 'ADMIN' ? 'Nhân viên' : 'Khách gửi'}
+                            </small>
+                            <strong>
+                              {moneyFormatter.format(order.totalVnd)} · {order.lines.length} khoản
                             </strong>
-                          </p>
-                          {line.lineKind === 'MANUAL_TIME' ? (
-                            <p className="mt-1 text-xs font-bold text-muted">
-                              Thời lượng {line.durationMinutes} phút · Chu kỳ{' '}
-                              {line.billingIntervalMinutes} phút
-                            </p>
-                          ) : null}
-                          {line.voidReason ? (
-                            <p className="mt-2 text-sm font-bold text-danger">
-                              Đã void: {line.voidReason}
-                            </p>
-                          ) : null}
-                        </div>
-
-                        {line.status === 'ACTIVE' ? (
-                          <div className="grid min-w-full grid-cols-3 gap-2 text-center text-xs font-black lg:min-w-[300px]">
-                            <div className="rounded-xl bg-success-soft px-2 py-3 text-success">
-                              <span className="block">PAID</span>
-                              <span className="mt-1 block text-sm">{line.paidQuantity}</span>
-                            </div>
-                            <div className="rounded-xl bg-warning-soft px-2 py-3 text-warning">
-                              <span className="block">WAIVED</span>
-                              <span className="mt-1 block text-sm">{line.waivedQuantity}</span>
-                            </div>
-                            <div className="rounded-xl bg-neutral-soft px-2 py-3 text-muted">
-                              <span className="block">CÒN</span>
-                              <span className="mt-1 block text-sm">{line.outstandingQuantity}</span>
-                            </div>
                           </div>
-                        ) : null}
-                      </div>
+                          <span>{orderStatusLabel[order.status]}</span>
+                          <Chevron />
+                        </summary>
 
-                      {isOpen && line.status === 'ACTIVE' ? (
-                        <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-4">
-                          {editableLine && line.lineKind !== 'MANUAL_TIME' ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setOperationError(null);
-                                if (isCustom) {
-                                  openEditCustomCharge(line);
-                                } else {
-                                  setQuantityTarget({
-                                    lineId: line.id,
-                                    itemName: line.itemName,
-                                    quantity: line.quantity,
-                                  });
-                                  setQuantityValue(line.quantity);
-                                }
-                              }}
-                              className="rounded-lg border border-line px-3 py-2 text-sm font-black"
-                            >
-                              Chỉnh sửa
-                            </button>
+                        <div className="ab-order-body">
+                          {order.note ? (
+                            <p className="ab-order-note">
+                              <strong>Ghi chú:</strong> {order.note}
+                            </p>
                           ) : null}
-                          {line.outstandingQuantity > 0 && order.status !== 'CANCELLED' ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setOperationError(null);
-                                setSettlementTarget({
-                                  lineId: line.id,
-                                  itemName: line.itemName,
-                                  outstandingQuantity: line.outstandingQuantity,
-                                  unitPriceVnd: line.unitPriceVnd,
-                                });
-                                setSettlementType('PAID');
-                                setSettlementQuantity(line.outstandingQuantity);
-                                setSettlementReason('');
-                              }}
-                              className="rounded-lg bg-success px-3 py-2 text-sm font-black text-white"
-                            >
-                              Ghi nhận thanh toán/miễn
-                            </button>
+                          {order.cancellationReason ? (
+                            <p className="ab-order-note is-danger">
+                              <strong>Lý do hủy:</strong> {order.cancellationReason}
+                            </p>
                           ) : null}
-                          {order.status !== 'CANCELLED' && !hasActiveSettlements(line) ? (
-                            <button
-                              type="button"
-                              disabled={busy}
-                              onClick={() => {
-                                setOperationError(null);
-                                setVoidTarget({
-                                  lineId: line.id,
-                                  itemName: line.itemName,
-                                  custom: isCustom,
-                                });
-                                setVoidReason('');
-                              }}
-                              className="rounded-lg border border-danger px-3 py-2 text-sm font-black text-danger"
-                            >
-                              Void
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
 
-                      {line.settlements.length > 0 ? (
-                        <div className="mt-4 space-y-2 border-t border-line pt-4">
-                          <p className="text-xs font-bold uppercase tracking-wide text-muted">
-                            Lịch sử settlement
-                          </p>
-                          {line.settlements.map((settlement) => (
-                            <div
-                              key={settlement.id}
-                              className={`flex flex-col gap-2 rounded-xl px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
-                                settlement.status === 'ACTIVE'
-                                  ? 'bg-neutral-soft'
-                                  : 'bg-neutral-soft/60 opacity-65'
-                              }`}
-                            >
-                              <div>
-                                <p className="font-black">
-                                  {settlement.type} · {settlement.quantity} ×{' '}
-                                  {moneyFormatter.format(settlement.unitPriceVnd)} ={' '}
-                                  {moneyFormatter.format(settlement.amountVnd)}
-                                </p>
-                                {settlement.reason ? (
-                                  <p className="mt-1 text-xs text-muted">
-                                    Lý do: {settlement.reason}
-                                  </p>
-                                ) : null}
-                                {settlement.reversalReason ? (
-                                  <p className="mt-1 text-xs font-bold text-danger">
-                                    Đã hoàn tác: {settlement.reversalReason}
-                                  </p>
-                                ) : null}
-                              </div>
-                              {isOpen && settlement.status === 'ACTIVE' ? (
+                          <div className="ab-line-list">
+                            {order.lines.map((line) => {
+                              const isCustom = line.lineKind !== 'CATALOG';
+                              const editableOrder =
+                                order.status === 'PENDING' || order.status === 'ACCEPTED';
+                              const editableLine =
+                                isOpen &&
+                                line.status === 'ACTIVE' &&
+                                editableOrder &&
+                                !hasActiveSettlements(line);
+                              const imageUrl = lineImageUrl(cloudName, line);
+
+                              return (
+                                <article
+                                  key={line.id}
+                                  className={`ab-line ${line.status === 'VOIDED' ? 'is-voided' : ''}`}
+                                >
+                                  <div className="ab-line-main">
+                                    <div className="ab-line-image">
+                                      {imageUrl ? (
+                                        <img src={imageUrl} alt="" />
+                                      ) : line.lineKind === 'MANUAL_TIME' ? (
+                                        <Clock />
+                                      ) : (
+                                        <Package />
+                                      )}
+                                    </div>
+                                    <div className="ab-line-copy">
+                                      <strong>{line.itemName}</strong>
+                                      <span>
+                                        {line.quantity} {line.unitName} ×{' '}
+                                        {moneyFormatter.format(line.unitPriceVnd)}
+                                      </span>
+                                      {line.lineKind === 'MANUAL_TIME' ? (
+                                        <small>
+                                          {line.durationMinutes} phút · block{' '}
+                                          {line.billingIntervalMinutes} phút
+                                        </small>
+                                      ) : null}
+                                      {line.voidReason ? (
+                                        <small className="is-danger">Void: {line.voidReason}</small>
+                                      ) : null}
+                                    </div>
+                                    <b className="ab-line-total">
+                                      {moneyFormatter.format(line.lineTotalVnd)}
+                                    </b>
+                                  </div>
+
+                                  {line.status === 'ACTIVE' ? (
+                                    <div className="ab-line-settlement">
+                                      <span className="is-paid">Trả {line.paidQuantity}</span>
+                                      <span className="is-waived">Miễn {line.waivedQuantity}</span>
+                                      <span>Còn {line.outstandingQuantity}</span>
+                                    </div>
+                                  ) : null}
+
+                                  {isOpen && line.status === 'ACTIVE' ? (
+                                    <div className="ab-line-actions">
+                                      {editableLine ? (
+                                        <button
+                                          type="button"
+                                          disabled={busy}
+                                          onClick={() => {
+                                            setOperationError(null);
+                                            if (isCustom) {
+                                              openEditCustomCharge(line);
+                                            } else {
+                                              setQuantityTarget({
+                                                lineId: line.id,
+                                                itemName: line.itemName,
+                                              });
+                                              setQuantityValue(line.quantity);
+                                            }
+                                          }}
+                                        >
+                                          Sửa
+                                        </button>
+                                      ) : null}
+
+                                      {line.outstandingQuantity > 0 &&
+                                      order.status !== 'CANCELLED' ? (
+                                        <button
+                                          type="button"
+                                          className="is-primary"
+                                          disabled={busy}
+                                          onClick={() => openSettlement(line)}
+                                        >
+                                          Thanh toán / miễn
+                                        </button>
+                                      ) : null}
+
+                                      {order.status !== 'CANCELLED' &&
+                                      !hasActiveSettlements(line) ? (
+                                        <button
+                                          type="button"
+                                          className="is-danger"
+                                          disabled={busy}
+                                          onClick={() => {
+                                            setOperationError(null);
+                                            setVoidTarget({
+                                              lineId: line.id,
+                                              itemName: line.itemName,
+                                              custom: isCustom,
+                                            });
+                                            setVoidReason('');
+                                          }}
+                                        >
+                                          Void
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  ) : null}
+
+                                  {line.settlements.length > 0 ? (
+                                    <details className="ab-history">
+                                      <summary>
+                                        Lịch sử thanh toán ({line.settlements.length})
+                                      </summary>
+                                      <div>
+                                        {line.settlements.map((settlement) => (
+                                          <article key={settlement.id}>
+                                            <div>
+                                              <strong>
+                                                {settlement.type} · {settlement.quantity} ×{' '}
+                                                {moneyFormatter.format(settlement.unitPriceVnd)}
+                                              </strong>
+                                              <span>
+                                                {settlement.status === 'ACTIVE'
+                                                  ? moneyFormatter.format(settlement.amountVnd)
+                                                  : `Đã hoàn tác: ${settlement.reversalReason ?? ''}`}
+                                              </span>
+                                            </div>
+                                            {isOpen && settlement.status === 'ACTIVE' ? (
+                                              <button
+                                                type="button"
+                                                disabled={busy}
+                                                onClick={() => {
+                                                  setOperationError(null);
+                                                  setReverseTarget({
+                                                    settlementId: settlement.id,
+                                                    itemName: line.itemName,
+                                                    type: settlement.type,
+                                                    quantity: settlement.quantity,
+                                                  });
+                                                  setReverseReason('');
+                                                }}
+                                              >
+                                                Hoàn tác
+                                              </button>
+                                            ) : null}
+                                          </article>
+                                        ))}
+                                      </div>
+                                    </details>
+                                  ) : null}
+                                </article>
+                              );
+                            })}
+                          </div>
+
+                          {isOpen ? (
+                            <div className="ab-order-actions">
+                              {order.status === 'PENDING' ? (
                                 <button
                                   type="button"
+                                  className="is-primary"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    statusMutation.mutate({
+                                      orderId: order.id,
+                                      status: 'ACCEPTED',
+                                    })
+                                  }
+                                >
+                                  Xác nhận đơn
+                                </button>
+                              ) : null}
+                              {order.status === 'ACCEPTED' ? (
+                                <button
+                                  type="button"
+                                  className="is-served"
+                                  disabled={busy}
+                                  onClick={() =>
+                                    statusMutation.mutate({
+                                      orderId: order.id,
+                                      status: 'SERVED',
+                                    })
+                                  }
+                                >
+                                  Đã phục vụ
+                                </button>
+                              ) : null}
+                              {order.status === 'PENDING' || order.status === 'ACCEPTED' ? (
+                                <button
+                                  type="button"
+                                  className="is-danger"
                                   disabled={busy}
                                   onClick={() => {
                                     setOperationError(null);
-                                    setReverseTarget({
-                                      settlementId: settlement.id,
-                                      itemName: line.itemName,
-                                      type: settlement.type,
-                                      quantity: settlement.quantity,
+                                    setCancelTarget({
+                                      orderId: order.id,
+                                      label: `Order #${orderNumber}`,
                                     });
-                                    setReverseReason('');
+                                    setCancelReason('');
                                   }}
-                                  className="rounded-lg border border-danger px-3 py-2 text-xs font-black text-danger"
                                 >
-                                  Hoàn tác
+                                  Hủy order
                                 </button>
                               ) : null}
                             </div>
-                          ))}
+                          ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-
-              {isOpen ? (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {order.status === 'PENDING' ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        statusMutation.mutate({ orderId: order.id, status: 'ACCEPTED' })
-                      }
-                      className="rounded-xl bg-brand px-4 py-2 font-black text-white"
-                    >
-                      Xác nhận đơn
-                    </button>
-                  ) : null}
-                  {order.status === 'ACCEPTED' ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => statusMutation.mutate({ orderId: order.id, status: 'SERVED' })}
-                      className="rounded-xl border border-success px-4 py-2 font-black text-success"
-                    >
-                      Đánh dấu đã phục vụ (tùy chọn)
-                    </button>
-                  ) : null}
-                  {order.status === 'PENDING' || order.status === 'ACCEPTED' ? (
-                    <button
-                      type="button"
-                      disabled={busy || order.lines.some(hasActiveSettlements)}
-                      onClick={() => {
-                        setOperationError(null);
-                        setCancelTarget({ orderId: order.id, label: `Order #${index + 1}` });
-                        setCancelReason('');
-                      }}
-                      className="rounded-xl border border-danger px-4 py-2 font-black text-danger disabled:opacity-50"
-                    >
-                      Hủy order
-                    </button>
-                  ) : null}
+                      </details>
+                    );
+                  })}
                 </div>
-              ) : null}
-            </article>
-          ))}
+              )}
+            </div>
+          </section>
         </section>
       </div>
 
       <ActionDialog
         open={cancelTarget !== null}
         title={`Hủy ${cancelTarget?.label ?? 'order'}`}
-        description="Order bị hủy vẫn được giữ lại trong lịch sử. Nhập lý do rõ ràng để phục vụ audit."
+        description="Order vẫn được giữ lại để đối chiếu và không bị xóa khỏi lịch sử."
         confirmLabel="Xác nhận hủy"
         danger
         busy={statusMutation.isPending}
@@ -1209,8 +1284,8 @@ export function AdminBillPage() {
           });
         }}
       >
-        <label className="block">
-          <span className="text-sm font-bold">Lý do hủy</span>
+        <label className="ab-dialog-field">
+          <span>Lý do hủy</span>
           <textarea
             value={cancelReason}
             maxLength={300}
@@ -1218,11 +1293,8 @@ export function AdminBillPage() {
             autoFocus
             onChange={(event) => setCancelReason(event.target.value)}
             placeholder="Ví dụ: Khách đổi món, nhân viên nhập nhầm…"
-            className="mt-2 w-full resize-none rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
           />
-          <span className="mt-1 block text-right text-xs text-muted">
-            {cancelReason.trim().length}/300
-          </span>
+          <small>{cancelReason.trim().length}/300</small>
         </label>
       </ActionDialog>
 
@@ -1240,11 +1312,14 @@ export function AdminBillPage() {
         }}
         onConfirm={() => {
           if (!quantityTarget) return;
-          quantityMutation.mutate({ lineId: quantityTarget.lineId, quantity: quantityValue });
+          quantityMutation.mutate({
+            lineId: quantityTarget.lineId,
+            quantity: quantityValue,
+          });
         }}
       >
-        <label className="block">
-          <span className="text-sm font-bold">Số lượng mới (1–50)</span>
+        <label className="ab-dialog-field">
+          <span>Số lượng mới (1–50)</span>
           <input
             type="number"
             min={1}
@@ -1252,7 +1327,6 @@ export function AdminBillPage() {
             value={quantityValue}
             autoFocus
             onChange={(event) => setQuantityValue(Number(event.target.value))}
-            className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
           />
         </label>
       </ActionDialog>
@@ -1260,7 +1334,7 @@ export function AdminBillPage() {
       <ActionDialog
         open={voidTarget !== null}
         title={`Void · ${voidTarget?.itemName ?? ''}`}
-        description="Dữ liệu không bị xóa. Khoản này sẽ chuyển sang trạng thái VOIDED và không còn tính vào bill."
+        description="Dữ liệu không bị xóa. Khoản này chuyển sang VOIDED và không còn tính vào bill."
         confirmLabel="Xác nhận void"
         danger
         busy={voidMutation.isPending}
@@ -1274,23 +1348,22 @@ export function AdminBillPage() {
           voidMutation.mutate({ ...voidTarget, reason: voidReason.trim() });
         }}
       >
-        <label className="block">
-          <span className="text-sm font-bold">Lý do void</span>
+        <label className="ab-dialog-field">
+          <span>Lý do void</span>
           <textarea
             value={voidReason}
             maxLength={300}
             rows={4}
             autoFocus
             onChange={(event) => setVoidReason(event.target.value)}
-            className="mt-2 w-full resize-none rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
           />
         </label>
       </ActionDialog>
 
       <ActionDialog
         open={editTarget !== null}
-        title={`Chỉnh khoản phát sinh · ${editTarget?.itemName ?? ''}`}
-        description="Chỉ khoản chưa phục vụ và chưa có settlement đang hoạt động mới được chỉnh sửa."
+        title={`Chỉnh khoản · ${editTarget?.itemName ?? ''}`}
+        description="Chỉ khoản chưa phục vụ và chưa có settlement đang hoạt động mới được chỉnh."
         confirmLabel="Lưu thay đổi"
         busy={updateCustomChargeMutation.isPending}
         confirmDisabled={
@@ -1317,6 +1390,7 @@ export function AdminBillPage() {
         }}
         onConfirm={() => {
           if (!editTarget || editTarget.lineKind === 'CATALOG') return;
+
           const request: UpdateAdminCustomChargeRequest =
             editTarget.lineKind === 'MANUAL_PRODUCT'
               ? {
@@ -1333,70 +1407,69 @@ export function AdminBillPage() {
                   billingIntervalMinutes: editBillingIntervalMinutes,
                   pricePerIntervalVnd: editUnitPriceVnd,
                 };
-          updateCustomChargeMutation.mutate({ chargeId: editTarget.id, request });
+
+          updateCustomChargeMutation.mutate({
+            chargeId: editTarget.id,
+            request,
+          });
         }}
       >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <label className="block sm:col-span-2">
-            <span className="text-sm font-bold">Tên</span>
+        <div className="ab-dialog-grid">
+          <label className="ab-dialog-field is-wide">
+            <span>Tên</span>
             <input
               value={editName}
               maxLength={160}
               onChange={(event) => setEditName(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
             />
           </label>
           {editTarget?.lineKind === 'MANUAL_PRODUCT' ? (
             <>
-              <label className="block">
-                <span className="text-sm font-bold">Đơn vị</span>
+              <label className="ab-dialog-field">
+                <span>Đơn vị</span>
                 <input
                   value={editUnitName}
                   maxLength={40}
                   onChange={(event) => setEditUnitName(event.target.value)}
-                  className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-bold">Số lượng</span>
+              <label className="ab-dialog-field">
+                <span>Số lượng</span>
                 <input
                   type="number"
                   min={1}
                   max={999}
                   value={editQuantity}
                   onChange={(event) => setEditQuantity(Number(event.target.value))}
-                  className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
                 />
               </label>
             </>
           ) : (
             <>
-              <label className="block">
-                <span className="text-sm font-bold">Thời lượng (phút)</span>
+              <label className="ab-dialog-field">
+                <span>Thời lượng (phút)</span>
                 <input
                   type="number"
                   min={1}
                   max={1_440}
                   value={editDurationMinutes}
                   onChange={(event) => setEditDurationMinutes(Number(event.target.value))}
-                  className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-bold">Chu kỳ (phút)</span>
+              <label className="ab-dialog-field">
+                <span>Chu kỳ (phút)</span>
                 <input
                   type="number"
                   min={1}
                   max={1_440}
                   value={editBillingIntervalMinutes}
                   onChange={(event) => setEditBillingIntervalMinutes(Number(event.target.value))}
-                  className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
                 />
               </label>
             </>
           )}
-          <label className="block sm:col-span-2">
-            <span className="text-sm font-bold">
+          <label className="ab-dialog-field is-wide">
+            <span>
               {editTarget?.lineKind === 'MANUAL_TIME' ? 'Giá mỗi chu kỳ VND' : 'Đơn giá VND'}
             </span>
             <input
@@ -1405,7 +1478,6 @@ export function AdminBillPage() {
               max={2_147_483_647}
               value={editUnitPriceVnd}
               onChange={(event) => setEditUnitPriceVnd(Number(event.target.value))}
-              className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
             />
           </label>
         </div>
@@ -1414,7 +1486,9 @@ export function AdminBillPage() {
       <ActionDialog
         open={settlementTarget !== null}
         title={`Xử lý tiền · ${settlementTarget?.itemName ?? ''}`}
-        description={`Còn tối đa ${settlementTarget?.outstandingQuantity ?? 0} đơn vị chưa xử lý. Server tính số tiền chính thức theo snapshot giá.`}
+        description={`Còn tối đa ${
+          settlementTarget?.outstandingQuantity ?? 0
+        } đơn vị. Server tính tiền chính thức.`}
         confirmLabel={settlementType === 'PAID' ? 'Ghi nhận PAID' : 'Ghi nhận WAIVED'}
         busy={settlementMutation.isPending}
         confirmDisabled={
@@ -1431,6 +1505,7 @@ export function AdminBillPage() {
         }}
         onConfirm={() => {
           if (!settlementTarget) return;
+
           const request: CreateAdminSettlementRequest =
             settlementType === 'PAID'
               ? {
@@ -1444,31 +1519,31 @@ export function AdminBillPage() {
                   quantity: settlementQuantity,
                   reason: settlementReason.trim(),
                 };
-          settlementMutation.mutate({ lineId: settlementTarget.lineId, request });
+
+          settlementMutation.mutate({
+            lineId: settlementTarget.lineId,
+            request,
+          });
         }}
       >
-        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-neutral-soft p-1.5">
+        <div className="ab-settlement-switch">
           <button
             type="button"
+            className={settlementType === 'PAID' ? 'is-active is-paid' : ''}
             onClick={() => setSettlementType('PAID')}
-            className={`rounded-xl px-3 py-3 font-black ${
-              settlementType === 'PAID' ? 'bg-success text-white' : 'text-muted'
-            }`}
           >
             PAID
           </button>
           <button
             type="button"
+            className={settlementType === 'WAIVED' ? 'is-active is-waived' : ''}
             onClick={() => setSettlementType('WAIVED')}
-            className={`rounded-xl px-3 py-3 font-black ${
-              settlementType === 'WAIVED' ? 'bg-warning text-white' : 'text-muted'
-            }`}
           >
             WAIVED
           </button>
         </div>
-        <label className="mt-4 block">
-          <span className="text-sm font-bold">Số lượng xử lý</span>
+        <label className="ab-dialog-field ab-dialog-spacing">
+          <span>Số lượng xử lý</span>
           <input
             type="number"
             min={1}
@@ -1482,22 +1557,20 @@ export function AdminBillPage() {
                 ),
               )
             }
-            className="mt-2 w-full rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
           />
-          <span className="mt-2 block text-sm font-bold text-brand">
-            Dự kiến{' '}
+          <strong>
+            Dự kiến:{' '}
             {moneyFormatter.format(settlementQuantity * (settlementTarget?.unitPriceVnd ?? 0))}
-          </span>
+          </strong>
         </label>
         {settlementType === 'WAIVED' ? (
-          <label className="mt-4 block">
-            <span className="text-sm font-bold">Lý do miễn thu</span>
+          <label className="ab-dialog-field ab-dialog-spacing">
+            <span>Lý do miễn thu</span>
             <textarea
               value={settlementReason}
               maxLength={300}
               rows={4}
               onChange={(event) => setSettlementReason(event.target.value)}
-              className="mt-2 w-full resize-none rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
             />
           </label>
         ) : null}
@@ -1506,7 +1579,9 @@ export function AdminBillPage() {
       <ActionDialog
         open={reverseTarget !== null}
         title={`Hoàn tác ${reverseTarget?.type ?? 'settlement'}`}
-        description={`${reverseTarget?.itemName ?? ''} · ${reverseTarget?.quantity ?? 0} đơn vị. Settlement cũ vẫn được giữ trong audit.`}
+        description={`${reverseTarget?.itemName ?? ''} · ${
+          reverseTarget?.quantity ?? 0
+        } đơn vị. Settlement cũ vẫn giữ trong audit.`}
         confirmLabel="Xác nhận hoàn tác"
         danger
         busy={reverseSettlementMutation.isPending}
@@ -1523,191 +1598,169 @@ export function AdminBillPage() {
           });
         }}
       >
-        <label className="block">
-          <span className="text-sm font-bold">Lý do hoàn tác</span>
+        <label className="ab-dialog-field">
+          <span>Lý do hoàn tác</span>
           <textarea
             value={reverseReason}
             maxLength={300}
             rows={4}
             autoFocus
             onChange={(event) => setReverseReason(event.target.value)}
-            className="mt-2 w-full resize-none rounded-xl border border-line px-4 py-3 outline-none focus:border-brand"
           />
         </label>
       </ActionDialog>
 
       <ActionDialog
         open={checkoutOpen}
-        title="Tạm tính và kiểm tra toàn bộ bill"
-        description="Tất cả order chưa hủy đều được tính, kể cả order chưa xác nhận hoặc chưa đánh dấu phục vụ. Các lần đã thanh toán vẫn giữ riêng để đối soát."
+        title="Tạm tính toàn bộ bill"
+        description="Mọi order chưa hủy đều được tính, kể cả order chưa xác nhận hoặc chưa đánh dấu phục vụ."
         confirmLabel="Hoàn thành bill"
         busy={completeMutation.isPending || payOutstandingMutation.isPending}
         confirmDisabled={!checkoutQuery.data || checkoutQuery.data.outstandingTotalVnd > 0}
         error={operationError}
         onClose={() => {
-          if (!completeMutation.isPending && !payOutstandingMutation.isPending)
+          if (!completeMutation.isPending && !payOutstandingMutation.isPending) {
             setCheckoutOpen(false);
+          }
         }}
         onConfirm={() => {
           if (checkoutQuery.data) completeMutation.mutate(checkoutQuery.data);
         }}
       >
         {checkoutQuery.isPending ? (
-          <p className="rounded-2xl bg-neutral-soft p-5 text-center font-bold text-muted">
-            Đang lập bản tạm tính…
-          </p>
+          <div className="ab-checkout-loading">Đang lập bản tạm tính…</div>
         ) : checkoutQuery.data ? (
-          <div className="space-y-5">
-            {checkoutQuery.data.courtRentals.length > 0 ? (
-              <section className="rounded-2xl border border-line p-4">
-                <h3 className="font-black">Phí thuê sân</h3>
-                {checkoutQuery.data.courtRentals.map((rental) => (
-                  <div key={rental.id} className="mt-3">
-                    <p className="text-sm font-bold">
-                      {rental.startTime} · {rental.durationHours} giờ ·{' '}
-                      {moneyFormatter.format(rental.totalAmountVnd)}
-                    </p>
-                    <div className="mt-2 space-y-1 text-sm text-muted">
+          <div className="ab-checkout">
+            <div className="ab-checkout-main">
+              {checkoutQuery.data.courtRentals.length > 0 ? (
+                <section>
+                  <h3>Phí thuê sân</h3>
+                  {checkoutQuery.data.courtRentals.map((rental) => (
+                    <article key={rental.id} className="ab-rental-preview">
+                      <header>
+                        <strong>
+                          {rental.startTime} · {rental.durationHours} giờ
+                        </strong>
+                        <b>{moneyFormatter.format(rental.totalAmountVnd)}</b>
+                      </header>
                       {rental.breakdown.map((block) => (
-                        <div key={block.sequence} className="flex justify-between gap-4">
+                        <div key={block.sequence}>
                           <span>
                             {block.startsAt}–{block.endsAt}
                           </span>
-                          <span>{moneyFormatter.format(block.totalVnd)}</span>
+                          <strong>{moneyFormatter.format(block.totalVnd)}</strong>
                         </div>
                       ))}
-                    </div>
-                  </div>
-                ))}
-              </section>
-            ) : null}
-
-            <section>
-              <div className="flex items-center justify-between gap-4">
-                <h3 className="font-black">Chưa thanh toán</h3>
-                <strong className="text-brand">
-                  {moneyFormatter.format(checkoutQuery.data.outstandingTotalVnd)}
-                </strong>
-              </div>
-              {checkoutQuery.data.outstandingItems.length === 0 ? (
-                <p className="mt-3 rounded-xl bg-success-soft p-4 font-bold text-success">
-                  Không còn khoản chưa thanh toán.
-                </p>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {checkoutQuery.data.outstandingItems.map((item) => (
-                    <div
-                      key={`${item.lineKind}:${item.itemName}:${item.unitPriceVnd}`}
-                      className="flex items-center justify-between gap-4 rounded-xl bg-neutral-soft p-3"
-                    >
-                      <div>
-                        <p className="font-bold">{item.itemName}</p>
-                        <p className="text-xs text-muted">
-                          {item.quantity} × {moneyFormatter.format(item.unitPriceVnd)}
-                        </p>
-                      </div>
-                      <strong>{moneyFormatter.format(item.totalVnd)}</strong>
-                    </div>
+                    </article>
                   ))}
-                  <button
-                    type="button"
-                    disabled={payOutstandingMutation.isPending}
-                    onClick={() => payOutstandingMutation.mutate()}
-                    className="w-full rounded-xl bg-brand px-4 py-3 font-black text-white disabled:opacity-50"
-                  >
-                    {payOutstandingMutation.isPending
-                      ? 'Đang ghi nhận…'
-                      : 'Thanh toán toàn bộ phần còn lại'}
-                  </button>
-                </div>
-              )}
-            </section>
+                </section>
+              ) : null}
 
-            <section>
-              <h3 className="font-black">Các lần đã thanh toán</h3>
-              {checkoutQuery.data.paymentBatches.length === 0 ? (
-                <p className="mt-3 text-sm text-muted">Chưa có lần thanh toán nào.</p>
-              ) : (
-                <div className="mt-3 space-y-3">
-                  {checkoutQuery.data.paymentBatches.map((batch, index) => (
-                    <details key={batch.id} className="rounded-xl border border-line p-3">
-                      <summary className="cursor-pointer font-black">
-                        Thanh toán lần {index + 1} · {moneyFormatter.format(batch.totalVnd)}
-                      </summary>
-                      <div className="mt-3 space-y-2">
-                        {batch.items.map((item) => (
-                          <div
-                            key={`${item.itemName}:${item.unitPriceVnd}`}
-                            className="flex justify-between gap-4 text-sm"
-                          >
+              <section>
+                <header className="ab-checkout-section-head">
+                  <h3>Chưa thanh toán</h3>
+                  <strong>{moneyFormatter.format(checkoutQuery.data.outstandingTotalVnd)}</strong>
+                </header>
+                {checkoutQuery.data.outstandingItems.length === 0 ? (
+                  <p className="ab-paid-all">Không còn khoản chưa thanh toán.</p>
+                ) : (
+                  <>
+                    <div className="ab-checkout-items">
+                      {checkoutQuery.data.outstandingItems.map((item) => (
+                        <article key={`${item.lineKind}:${item.itemName}:${item.unitPriceVnd}`}>
+                          <div>
+                            <strong>{item.itemName}</strong>
                             <span>
-                              {item.itemName} × {item.quantity}
+                              {item.quantity} × {moneyFormatter.format(item.unitPriceVnd)}
                             </span>
-                            <strong>{moneyFormatter.format(item.totalVnd)}</strong>
                           </div>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              )}
-            </section>
+                          <b>{moneyFormatter.format(item.totalVnd)}</b>
+                        </article>
+                      ))}
+                    </div>
+                    <button
+                      type="button"
+                      className="ab-pay-all"
+                      disabled={payOutstandingMutation.isPending}
+                      onClick={() => payOutstandingMutation.mutate()}
+                    >
+                      {payOutstandingMutation.isPending
+                        ? 'Đang ghi nhận…'
+                        : 'Thanh toán toàn bộ phần còn lại'}
+                    </button>
+                  </>
+                )}
+              </section>
 
-            <details className="rounded-2xl border border-line p-4">
-              <summary className="cursor-pointer font-black">
-                Tổng hợp toàn bộ món trong bill
-              </summary>
-              <div className="mt-3 space-y-2">
-                {checkoutQuery.data.allItems.map((item) => (
-                  <div
-                    key={`${item.lineKind}:${item.itemName}:${item.unitPriceVnd}`}
-                    className="flex items-center justify-between gap-4 text-sm"
-                  >
-                    <span>
-                      {item.itemName} × {item.quantity}
-                    </span>
-                    <strong>{moneyFormatter.format(item.totalVnd)}</strong>
+              <section>
+                <h3>Các lần đã thanh toán</h3>
+                {checkoutQuery.data.paymentBatches.length === 0 ? (
+                  <p className="ab-checkout-empty">Chưa có lần thanh toán nào.</p>
+                ) : (
+                  <div className="ab-payment-batches">
+                    {checkoutQuery.data.paymentBatches.map((batch, index) => (
+                      <details key={batch.id}>
+                        <summary>
+                          <span>Thanh toán lần {index + 1}</span>
+                          <strong>{moneyFormatter.format(batch.totalVnd)}</strong>
+                        </summary>
+                        <div>
+                          {batch.items.map((item) => (
+                            <article key={`${item.itemName}:${item.unitPriceVnd}`}>
+                              <span>
+                                {item.itemName} × {item.quantity}
+                              </span>
+                              <strong>{moneyFormatter.format(item.totalVnd)}</strong>
+                            </article>
+                          ))}
+                        </div>
+                      </details>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </details>
+                )}
+              </section>
+            </div>
 
-            <section className="rounded-2xl bg-neutral-soft p-4">
-              <div className="flex justify-between gap-4">
+            <aside className="ab-checkout-total">
+              <div>
                 <span>Tổng phát sinh</span>
                 <strong>{moneyFormatter.format(checkoutQuery.data.grossTotalVnd)}</strong>
               </div>
-              <div className="mt-2 flex justify-between gap-4">
+              <div>
                 <span>Đã thanh toán</span>
-                <strong className="text-success">
-                  {moneyFormatter.format(checkoutQuery.data.paidTotalVnd)}
-                </strong>
+                <strong>{moneyFormatter.format(checkoutQuery.data.paidTotalVnd)}</strong>
               </div>
-              <div className="mt-2 flex justify-between gap-4">
+              <div>
                 <span>Miễn thu</span>
-                <strong className="text-warning">
-                  {moneyFormatter.format(checkoutQuery.data.waivedTotalVnd)}
-                </strong>
+                <strong>{moneyFormatter.format(checkoutQuery.data.waivedTotalVnd)}</strong>
               </div>
-              <div className="mt-3 flex justify-between gap-4 border-t border-line pt-3">
-                <span className="font-black">Còn phải thu</span>
-                <strong className="text-brand">
-                  {moneyFormatter.format(checkoutQuery.data.outstandingTotalVnd)}
-                </strong>
+              <div className="is-final">
+                <span>Còn phải thu</span>
+                <strong>{moneyFormatter.format(checkoutQuery.data.outstandingTotalVnd)}</strong>
               </div>
+              <details>
+                <summary>Tất cả món trong bill</summary>
+                <div>
+                  {checkoutQuery.data.allItems.map((item) => (
+                    <article key={`${item.lineKind}:${item.itemName}:${item.unitPriceVnd}`}>
+                      <span>
+                        {item.itemName} × {item.quantity}
+                      </span>
+                      <strong>{moneyFormatter.format(item.totalVnd)}</strong>
+                    </article>
+                  ))}
+                </div>
+              </details>
               {checkoutQuery.data.unresolvedOrderCount > 0 ? (
-                <p className="mt-3 rounded-xl bg-neutral-soft p-3 text-sm font-bold text-muted">
-                  Có {checkoutQuery.data.unresolvedOrderCount} order chưa xác nhận hoặc chưa đánh
-                  dấu phục vụ. Hệ thống vẫn tính toàn bộ các order chưa hủy; trạng thái phục vụ chỉ
-                  dùng để theo dõi vận hành.
+                <p>
+                  Có {checkoutQuery.data.unresolvedOrderCount} order chưa hoàn tất vận hành. Điều
+                  này không chặn thanh toán.
                 </p>
               ) : null}
-            </section>
+            </aside>
           </div>
         ) : (
-          <p className="rounded-xl bg-danger-soft p-4 font-bold text-danger">
-            Không thể lập bản tạm tính.
-          </p>
+          <p className="ab-checkout-error">Không thể lập bản tạm tính.</p>
         )}
       </ActionDialog>
     </main>
