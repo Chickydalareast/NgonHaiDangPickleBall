@@ -58,6 +58,29 @@ const adminOrderOperationsService = createAdminOrderOperationsService(
   adminRealtimeHub,
 );
 
+async function verifyDatabaseReadiness(): Promise<void> {
+  const result = await database.pool.query<{
+    migrations: string | null;
+    adminUsers: string | null;
+    venues: string | null;
+    servicePoints: string | null;
+    catalogItems: string | null;
+  }>(`
+    SELECT
+      to_regclass('drizzle.__drizzle_migrations')::text AS migrations,
+      to_regclass('public.admin_users')::text AS "adminUsers",
+      to_regclass('public.venues')::text AS venues,
+      to_regclass('public.service_points')::text AS "servicePoints",
+      to_regclass('public.catalog_items')::text AS "catalogItems"
+  `);
+
+  const readiness = result.rows[0];
+
+  if (!readiness || Object.values(readiness).some((relation) => relation === null)) {
+    throw new Error('Database schema is not fully migrated.');
+  }
+}
+
 const app = buildApp(
   {
     logger: {
@@ -65,6 +88,8 @@ const app = buildApp(
     },
   },
   {
+    commitSha: apiEnvironment.APP_COMMIT_SHA,
+    readinessCheck: verifyDatabaseReadiness,
     adminAlertService: createAdminAlertService(database.pool, adminRealtimeHub),
     adminAuthService,
     adminCatalogService: createAdminCatalogService(database.pool, catalogMediaService),

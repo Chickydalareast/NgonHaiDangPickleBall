@@ -1,0 +1,148 @@
+name: nhdp
+
+x-logging: &default-logging
+  driver: local
+  options:
+    max-size: '10m'
+    max-file: '3'
+
+x-api-build: &api-build
+  context: .
+  dockerfile: apps/api/Dockerfile
+
+x-database-environment: &database-environment
+  DATABASE_URL: postgresql://${POSTGRES_USER:?POSTGRES_USER is required}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:?POSTGRES_DB is required}
+  DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-3}
+
+services:
+  postgres:
+    image: postgres:18.4-alpine3.23
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB is required}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - database
+    logging: *default-logging
+
+  api:
+    image: nhdp-api:${APP_COMMIT_SHA:?APP_COMMIT_SHA is required}
+    build: *api-build
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_HOST: 0.0.0.0
+      API_PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_COMMIT_SHA: ${APP_COMMIT_SHA:?APP_COMMIT_SHA is required}
+      WEB_ORIGIN: https://${PRODUCTION_DOMAIN:?PRODUCTION_DOMAIN is required}
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:?CLOUDINARY_CLOUD_NAME is required}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:?CLOUDINARY_API_KEY is required}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:?CLOUDINARY_API_SECRET is required}
+      <<: *database-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - frontend
+      - database
+    logging: *default-logging
+
+  migrate:
+    image: nhdp-api:${APP_COMMIT_SHA:?APP_COMMIT_SHA is required}
+    build: *api-build
+    profiles: ['tools']
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      <<: *database-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['node', 'apps/api/dist/db/migrate.js']
+    networks:
+      - database
+    logging: *default-logging
+
+  seed:
+    image: nhdp-api:${APP_COMMIT_SHA:?APP_COMMIT_SHA is required}
+    build: *api-build
+    profiles: ['bootstrap']
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      ALLOW_PRODUCTION_SEED: ${ALLOW_PRODUCTION_SEED:-}
+      ADMIN_SEED_USERNAME: ${ADMIN_SEED_USERNAME:-}
+      ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-}
+      <<: *database-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ['node', 'apps/api/dist/db/seed.js']
+    networks:
+      - database
+    logging: *default-logging
+
+  caddy:
+    image: nhdp-caddy:${APP_COMMIT_SHA:?APP_COMMIT_SHA is required}
+    build:
+      context: .
+      dockerfile: infra/caddy/Dockerfile
+      args:
+        CADDYFILE: infra/caddy/Caddyfile.production
+    restart: unless-stopped
+    environment:
+      PRODUCTION_DOMAIN: ${PRODUCTION_DOMAIN:?PRODUCTION_DOMAIN is required}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+        restart: true
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:2019/config/']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - frontend
+    logging: *default-logging
+
+networks:
+  frontend:
+  database:
+    internal: true
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:

@@ -7,35 +7,41 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   quality:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-
-      - name: Setup Corepack and pnpm
-        run: |
-          npm install --global corepack@latest
-          corepack enable pnpm
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run quality gate
-        run: pnpm check
+      - name: Run source and build gates
+        run: pnpm ci:source
 
   database:
     needs: quality
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 20
     env:
       DATABASE_URL: postgresql://nhdp:nhdp_ci_password@localhost:5432/nhdp
       DATABASE_POOL_MAX: 5
@@ -62,15 +68,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version-file: .node-version
-
-      - name: Setup Corepack and pnpm
-        run: |
-          npm install --global corepack@latest
-          corepack enable pnpm
+          cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -78,7 +86,70 @@ jobs:
       - name: Apply migrations
         run: pnpm db:migrate
 
-      - name: Seed and verify full V1 database behavior
+      - name: Seed disposable CI database and verify V1 behavior
         run: |
           pnpm db:seed
           pnpm step10pro:verify:db
+
+  docker-runtime:
+    needs: database
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      POSTGRES_DB: nhdp
+      POSTGRES_USER: nhdp
+      POSTGRES_PASSWORD: nhdp_ci_docker_password
+      DATABASE_POOL_MAX: 3
+      ADMIN_SEED_USERNAME: admin
+      ADMIN_SEED_PASSWORD: ci-only-admin-password-change-me
+      SESSION_SECRET: ci-only-session-secret-change-me-32-characters-minimum
+      APP_COMMIT_SHA: ${{ github.sha }}
+      ALLOW_PRODUCTION_SEED: I_UNDERSTAND_THIS_IS_ONE_TIME_BOOTSTRAP
+      CADDY_HTTP_PORT: 8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.9.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build images and start PostgreSQL
+        run: |
+          docker compose build api caddy
+          docker compose up -d --wait postgres
+
+      - name: Apply migrations and one-time disposable seed
+        run: |
+          docker compose --profile tools run --rm migrate
+          docker compose --profile tools run --rm seed
+
+      - name: Start application containers
+        run: docker compose up -d --wait api caddy
+
+      - name: Run runtime smoke and PWA verification
+        run: |
+          pnpm smoke
+          pnpm pwa:verify
+
+      - name: Print container diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=250
+
+      - name: Stop containers
+        if: always()
+        run: docker compose down --volumes --remove-orphans

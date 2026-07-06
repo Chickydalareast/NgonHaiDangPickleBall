@@ -46,6 +46,7 @@ services:
       <<: *database-environment
       SESSION_SECRET: ${SESSION_SECRET:-local-only-secret-change-me-32-characters-minimum}
       WEB_ORIGIN: http://localhost:${CADDY_HTTP_PORT:-8080}
+      APP_COMMIT_SHA: ${APP_COMMIT_SHA:-local}
       CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
       CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
       CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
@@ -61,7 +62,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://127.0.0.1:3000/health').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));",
+          "fetch('http://127.0.0.1:3000/ready').then((response) => { if (!response.ok) process.exit(1); }).catch(() => process.exit(1));",
         ]
       interval: 5s
       timeout: 5s
@@ -93,6 +94,7 @@ services:
       <<: *database-environment
       ADMIN_SEED_USERNAME: ${ADMIN_SEED_USERNAME:-admin}
       ADMIN_SEED_PASSWORD: ${ADMIN_SEED_PASSWORD:-change-this-local-admin-password}
+      ALLOW_PRODUCTION_SEED: ${ALLOW_PRODUCTION_SEED:-I_UNDERSTAND_THIS_IS_ONE_TIME_BOOTSTRAP}
     depends_on:
       postgres:
         condition: service_healthy

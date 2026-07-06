@@ -10,7 +10,7 @@ import {
   type PublicServicePointContext,
 } from '@nhdp/contracts';
 
-import { buildApp, type HealthResponse } from './app.js';
+import { buildApp, type HealthResponse, type NotReadyResponse, type ReadyResponse } from './app.js';
 import { CreateOrderDomainError, type CreateOrderService } from './order/create-order-service.js';
 import type { PublicContextRepository } from './public-context/public-context-repository.js';
 
@@ -129,6 +129,59 @@ void test('GET /health returns the API health contract', async (context) => {
   assert.equal(body.version, '0.0.0');
   assert.equal(typeof body.uptimeSeconds, 'number');
   assert.match(body.timestamp, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(body.commitSha, 'unknown');
+});
+
+void test('GET /ready returns ready after the database probe succeeds', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      commitSha: '94546cbb52e3b469401c706113e63303ef815da0',
+      readinessCheck: () => Promise.resolve(),
+    },
+  );
+
+  context.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/ready',
+  });
+
+  assert.equal(response.statusCode, 200);
+
+  const body = response.json<ReadyResponse>();
+
+  assert.equal(body.status, 'ready');
+  assert.equal(body.commitSha, '94546cbb52e3b469401c706113e63303ef815da0');
+});
+
+void test('GET /ready returns 503 without leaking database errors', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      readinessCheck: () => Promise.reject(new Error('private database detail')),
+    },
+  );
+
+  context.after(async () => {
+    await app.close();
+  });
+
+  const response = await app.inject({
+    method: 'GET',
+    url: '/ready',
+  });
+
+  assert.equal(response.statusCode, 503);
+  assert.ok(!response.body.includes('private database detail'));
+
+  const body = response.json<NotReadyResponse>();
+
+  assert.equal(body.status, 'not_ready');
+  assert.equal(body.commitSha, 'unknown');
 });
 
 void test('GET public context returns shared contract data', async (context) => {

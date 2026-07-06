@@ -40,6 +40,7 @@ import type { PublicServiceRequestService } from './service-request/public-servi
 
 const SERVICE_NAME = '@nhdp/api';
 const SERVICE_VERSION = '0.0.0';
+const DEFAULT_COMMIT_SHA = 'unknown';
 
 export interface HealthResponse {
   status: 'ok';
@@ -47,6 +48,23 @@ export interface HealthResponse {
   version: typeof SERVICE_VERSION;
   uptimeSeconds: number;
   timestamp: string;
+  commitSha: string;
+}
+
+export interface ReadyResponse {
+  status: 'ready';
+  service: typeof SERVICE_NAME;
+  version: typeof SERVICE_VERSION;
+  timestamp: string;
+  commitSha: string;
+}
+
+export interface NotReadyResponse {
+  status: 'not_ready';
+  service: typeof SERVICE_NAME;
+  version: typeof SERVICE_VERSION;
+  timestamp: string;
+  commitSha: string;
 }
 
 export interface AppDependencies {
@@ -67,6 +85,8 @@ export interface AppDependencies {
   publicContextRepository?: PublicContextRepository;
   publicCurrentBillService?: PublicCurrentBillService;
   publicServiceRequestService?: PublicServiceRequestService;
+  readinessCheck?: () => Promise<void>;
+  commitSha?: string;
 }
 
 type AppServerOptions = Omit<FastifyServerOptions<HttpServer>, 'ajv'>;
@@ -87,6 +107,7 @@ export function buildApp(
   };
 
   const app = Fastify<HttpServer>(fastifyOptions);
+  const commitSha = dependencies.commitSha ?? DEFAULT_COMMIT_SHA;
 
   app.get('/health', () => {
     const response: HealthResponse = {
@@ -95,9 +116,48 @@ export function buildApp(
       version: SERVICE_VERSION,
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
+      commitSha,
     };
 
     return response;
+  });
+
+  app.get('/ready', async (_request, reply) => {
+    const responseBase = {
+      service: SERVICE_NAME,
+      version: SERVICE_VERSION,
+      timestamp: new Date().toISOString(),
+      commitSha,
+    } as const;
+
+    if (!dependencies.readinessCheck) {
+      const response: NotReadyResponse = {
+        status: 'not_ready',
+        ...responseBase,
+      };
+
+      return reply.status(503).send(response);
+    }
+
+    try {
+      await dependencies.readinessCheck();
+
+      const response: ReadyResponse = {
+        status: 'ready',
+        ...responseBase,
+      };
+
+      return response;
+    } catch (error) {
+      app.log.warn({ error }, 'Readiness check failed');
+
+      const response: NotReadyResponse = {
+        status: 'not_ready',
+        ...responseBase,
+      };
+
+      return reply.status(503).send(response);
+    }
   });
 
   if (dependencies.publicContextRepository) {

@@ -2,6 +2,8 @@ export {
   buildApp,
   type AppDependencies,
   type HealthResponse,
+  type ReadyResponse,
+  type NotReadyResponse,
   type PublicServicePointContext,
 } from './app.js';
 export { readApiEnvironment, type ApiEnvironment } from './config/environment.js';

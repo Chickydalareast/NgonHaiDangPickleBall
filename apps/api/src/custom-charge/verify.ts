@@ -5,6 +5,7 @@ import { Client } from 'pg';
 
 import { createAdminOrderOperationsService } from '../admin/admin-order-operations-service.js';
 import { readDatabaseEnvironment } from '../config/database-environment.js';
+import { dropVerificationDatabase } from '../db/verification-database.js';
 import { createDatabaseConnection } from '../db/client.js';
 import { runMigrations } from '../db/migrations.js';
 import { seedDatabase } from '../db/seed-service.js';
@@ -250,9 +251,7 @@ async function main(): Promise<void> {
       await database.pool.end();
     }
   } finally {
-    await adminClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(verificationDatabase)} WITH (FORCE)`,
-    );
+    await dropVerificationDatabase(adminClient, verificationDatabase);
     await adminClient.end();
   }
 }

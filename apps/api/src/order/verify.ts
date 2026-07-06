@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { createOrderRequestSchema } from '@nhdp/contracts';
 import { Client } from 'pg';
@@ -13,6 +14,32 @@ import { CreateOrderDomainError, createOrderService } from './create-order-servi
 function quoteIdentifier(identifier: string): string {
   assert.match(identifier, /^[a-z][a-z0-9_]*$/);
   return `"${identifier}"`;
+}
+
+async function waitForDatabaseConnectionsToClose(
+  adminClient: Client,
+  databaseName: string,
+): Promise<void> {
+  const deadline = Date.now() + 5_000;
+
+  while (Date.now() < deadline) {
+    const result = await adminClient.query<{ connections: number }>(
+      `
+        SELECT COUNT(*)::integer AS connections
+        FROM pg_stat_activity
+        WHERE datname = $1
+      `,
+      [databaseName],
+    );
+
+    if ((result.rows[0]?.connections ?? 0) === 0) {
+      return;
+    }
+
+    await delay(50);
+  }
+
+  throw new Error(`Timed out waiting for database connections to close: ${databaseName}`);
 }
 
 async function verifyCreateOrderTransaction(): Promise<void> {
@@ -168,9 +195,8 @@ async function verifyCreateOrderTransaction(): Promise<void> {
       await database.pool.end();
     }
   } finally {
-    await adminClient.query(
-      `DROP DATABASE IF EXISTS ${quoteIdentifier(verificationDatabase)} WITH (FORCE)`,
-    );
+    await waitForDatabaseConnectionsToClose(adminClient, verificationDatabase);
+    await adminClient.query(`DROP DATABASE IF EXISTS ${quoteIdentifier(verificationDatabase)}`);
     await adminClient.end();
   }
 }

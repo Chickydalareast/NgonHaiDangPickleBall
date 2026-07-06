@@ -75,7 +75,12 @@
     "migrations:verify": "tsx scripts/verify-migration-integrity.ts",
     "hardening:verify:db": "tsx apps/api/src/hardening/verify.ts",
     "step10pro:verify:db": "pnpm db:verify && pnpm db:verify:empty && pnpm public:verify:db && pnpm order:verify:db && pnpm auth:verify:db && pnpm realtime:verify:db && pnpm operations:verify:db && pnpm bills:verify:db && pnpm staff:verify:db && pnpm catalog:verify:db && pnpm service-points:verify:db && pnpm bill-projection:verify:db && pnpm custom-charges:verify:db && pnpm settlements:verify:db && pnpm hardening:verify:db",
-    "step10pro:verify": "pnpm service-points:verify && pnpm bill-projection:verify && pnpm custom-charges:verify && pnpm settlements:verify && pnpm public:verify && pnpm order:verify && pnpm auth:verify && pnpm realtime:verify && pnpm operations:verify && pnpm bills:verify && pnpm staff:verify && pnpm catalog:verify && pnpm smoke"
+    "step10pro:verify": "pnpm service-points:verify && pnpm bill-projection:verify && pnpm custom-charges:verify && pnpm settlements:verify && pnpm public:verify && pnpm order:verify && pnpm auth:verify && pnpm realtime:verify && pnpm operations:verify && pnpm bills:verify && pnpm staff:verify && pnpm catalog:verify && pnpm smoke",
+    "env:check:production:example": "tsx scripts/check-production-env.ts .env.production.example",
+    "compose:check:production": "docker compose --env-file .env.production.example -f compose.production.yaml config --quiet",
+    "pwa:verify:source": "tsx scripts/verify-admin-installable.ts --source-only",
+    "ci:source": "pnpm check && pnpm audio:verify && pnpm pwa:verify:source && pnpm env:check:production:example && pnpm compose:check:production",
+    "env:check:production": "tsx scripts/check-production-env.ts .env.production"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

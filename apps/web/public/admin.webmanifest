@@ -11,11 +11,7 @@
   "orientation": "any",
   "theme_color": "#109b91",
   "background_color": "#bec5c2",
-  "categories": [
-    "business",
-    "productivity",
-    "utilities"
-  ],
+  "categories": ["business", "productivity", "utilities"],
   "prefer_related_applications": false,
   "icons": [
     {
