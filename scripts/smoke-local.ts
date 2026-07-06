@@ -63,7 +63,7 @@ async function main(): Promise<void> {
 
     const body = await response.text();
 
-    if (!body.includes('Ngon Hải Đăng Pickleball')) {
+    if (!body.includes('Ngọn Hải Đăng Pickleball')) {
       throw new Error('GET / did not return the expected web shell.');
     }
 

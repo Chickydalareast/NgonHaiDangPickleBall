@@ -202,7 +202,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }
 
-// Provider v? hook ???c gi? chung trong module cart nh? c?a V1.
+// Provider và hook được giữ chung trong module cart nhỏ của V1.
 // eslint-disable-next-line react-refresh/only-export-components
 export function useCart(slug: string) {
   const context = useContext(CartContext);

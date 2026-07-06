@@ -5,10 +5,12 @@ import type {
   CreateAdminCatalogCategoryRequest,
   CreateAdminCatalogItemRequest,
 } from '@nhdp/contracts';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useNavigate } from 'react-router';
 
+import { useAdminAlertRuntime } from '../components/admin-alert-runtime';
+import { AdminPageHeader } from '../components/admin-page-header';
 import {
   AdminApiError,
   attachAdminCatalogItemImage,
@@ -17,6 +19,7 @@ import {
   createAdminCatalogItem,
   getAdminCatalog,
   getAdminSession,
+  logoutAdmin,
   removeAdminCatalogItemImage,
   updateAdminCatalogCategory,
   updateAdminCatalogItem,
@@ -24,7 +27,38 @@ import {
 import { buildCloudinaryImageUrl } from '../lib/cloudinary-image';
 
 const catalogQueryKey = ['admin', 'catalog'] as const;
+const moneyFormatter = new Intl.NumberFormat('vi-VN', {
+  style: 'currency',
+  currency: 'VND',
+  maximumFractionDigits: 0,
+});
+
 type CatalogStatus = 'ACTIVE' | 'INACTIVE';
+type CatalogVisibilityFilter = 'ALL' | 'VISIBLE' | 'HIDDEN';
+type CatalogSort = 'DEFAULT' | 'NAME' | 'PRICE_ASC' | 'PRICE_DESC';
+
+type CategoryModalTarget =
+  | {
+      mode: 'CREATE';
+    }
+  | {
+      mode: 'EDIT';
+      categoryId: string;
+    };
+
+type ItemModalTarget =
+  | {
+      mode: 'CREATE';
+    }
+  | {
+      mode: 'EDIT';
+      itemId: string;
+    };
+
+interface FlatCatalogItem {
+  item: AdminCatalogItem;
+  category: AdminCatalogCategory;
+}
 
 function isAuthenticationError(error: unknown): boolean {
   return error instanceof AdminApiError && error.status === 401;
@@ -35,431 +69,751 @@ function toNullableText(value: string): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function readFormText(form: FormData, key: string): string {
-  const value = form.get(key);
-  return typeof value === 'string' ? value : '';
+function slugify(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .replace(/đ/giu, 'd')
+    .toLocaleLowerCase('vi-VN')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-function replaceCatalog(
-  queryClient: ReturnType<typeof useQueryClient>,
-  catalog: AdminCatalogResponse,
-) {
-  queryClient.setQueryData(catalogQueryKey, catalog);
+function initials(value: string): string {
+  const words = value.trim().split(/\s+/u).filter(Boolean);
+
+  if (words.length === 0) {
+    return 'MH';
+  }
+
+  return words
+    .slice(0, 2)
+    .map((word) => word.slice(0, 1))
+    .join('')
+    .toLocaleUpperCase('vi-VN');
 }
 
-interface CategoryEditorProps {
-  category: AdminCatalogCategory;
-  onSaved: (catalog: AdminCatalogResponse) => void;
-  setPageError: (message: string | null) => void;
+function itemIsVisible(item: AdminCatalogItem, category: AdminCatalogCategory): boolean {
+  return category.status === 'ACTIVE' && item.status === 'ACTIVE' && item.isAvailable;
 }
 
-function CategoryEditor({ category, onSaved, setPageError }: CategoryEditorProps) {
-  const [name, setName] = useState(category.name);
-  const [slug, setSlug] = useState(category.slug);
-  const [description, setDescription] = useState(category.description ?? '');
-  const [status, setStatus] = useState<CatalogStatus>(category.status);
-  const [sortOrder, setSortOrder] = useState(String(category.sortOrder));
+function itemStatusLabel(item: AdminCatalogItem, category: AdminCatalogCategory): string {
+  if (category.status === 'INACTIVE') {
+    return 'Danh mục đang ẩn';
+  }
+
+  if (item.status === 'INACTIVE') {
+    return 'Ngừng hoạt động';
+  }
+
+  if (!item.isAvailable) {
+    return 'Tạm ngừng bán';
+  }
+
+  return 'Đang bán';
+}
+
+function itemStatusClass(item: AdminCatalogItem, category: AdminCatalogCategory): string {
+  if (itemIsVisible(item, category)) {
+    return 'is-visible';
+  }
+
+  if (item.status === 'INACTIVE' || category.status === 'INACTIVE') {
+    return 'is-inactive';
+  }
+
+  return 'is-paused';
+}
+
+function SearchIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-4-4" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function EditIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <path d="m14 5 5 5M4 20l4-1 11-11-3-3L5 16l-1 4Z" />
+    </svg>
+  );
+}
+
+function CloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m6 6 12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+function ImageIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="4" width="18" height="16" rx="3" />
+      <circle cx="9" cy="10" r="2" />
+      <path d="m5 18 5-5 3 3 2-2 4 4" />
+    </svg>
+  );
+}
+
+function useModalLifecycle(onClose: () => void) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    }
+
+    document.body.style.overflow = 'hidden';
+    document.addEventListener('keydown', closeOnEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [onClose]);
+}
+
+async function uploadCatalogItemImage(
+  itemId: string,
+  file: File,
+  alt: string,
+): Promise<AdminCatalogResponse> {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.');
+  }
+
+  if (file.size > 10 * 1024 * 1024) {
+    throw new Error('Ảnh phải nhỏ hơn hoặc bằng 10 MB.');
+  }
+
+  const signed = await createAdminCatalogImageSignature(itemId);
+  const form = new FormData();
+  form.set('file', file);
+  form.set('api_key', signed.apiKey);
+  form.set('timestamp', String(signed.timestamp));
+  form.set('signature', signed.signature);
+  form.set('public_id', signed.publicId);
+  form.set('allowed_formats', signed.parameters.allowedFormats);
+  form.set('transformation', signed.parameters.transformation);
+
+  const uploadResponse = await fetch(signed.uploadUrl, {
+    method: 'POST',
+    body: form,
+  });
+  const uploaded = (await uploadResponse.json()) as Record<string, unknown>;
+
+  if (!uploadResponse.ok) {
+    const cloudinaryError = uploaded.error;
+    const message =
+      typeof cloudinaryError === 'object' &&
+      cloudinaryError !== null &&
+      'message' in cloudinaryError
+        ? String(cloudinaryError.message)
+        : 'Cloudinary từ chối ảnh tải lên.';
+    throw new Error(message);
+  }
+
+  const publicId = typeof uploaded.public_id === 'string' ? uploaded.public_id : '';
+  const format = typeof uploaded.format === 'string' ? uploaded.format : '';
+  const signature = typeof uploaded.signature === 'string' ? uploaded.signature : '';
+
+  return attachAdminCatalogItemImage(itemId, {
+    publicId,
+    version: Number(uploaded.version),
+    width: Number(uploaded.width),
+    height: Number(uploaded.height),
+    format: format as 'jpg' | 'jpeg' | 'png' | 'webp',
+    signature,
+    alt: toNullableText(alt),
+  });
+}
+
+interface CategoryModalProps {
+  category: AdminCatalogCategory | null;
+  onClose: () => void;
+  onSaved: (catalog: AdminCatalogResponse, message: string) => void;
+  onError: (message: string) => void;
+}
+
+function CategoryModal({ category, onClose, onSaved, onError }: CategoryModalProps) {
+  const editing = category !== null;
+  const [name, setName] = useState(category?.name ?? '');
+  const [slug, setSlug] = useState(category?.slug ?? '');
+  const [description, setDescription] = useState(category?.description ?? '');
+  const [status, setStatus] = useState<CatalogStatus>(category?.status ?? 'ACTIVE');
+  const [sortOrder, setSortOrder] = useState(String(category?.sortOrder ?? 0));
   const [saving, setSaving] = useState(false);
+
+  useModalLifecycle(onClose);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
-    setPageError(null);
+    onError('');
+
+    const request: CreateAdminCatalogCategoryRequest = {
+      name,
+      slug,
+      description: toNullableText(description),
+      status,
+      sortOrder: Number(sortOrder),
+    };
 
     try {
-      const catalog = await updateAdminCatalogCategory(category.id, {
-        name,
-        slug,
-        description: toNullableText(description),
-        status,
-        sortOrder: Number(sortOrder),
-      });
-      onSaved(catalog);
+      const catalog = category
+        ? await updateAdminCatalogCategory(category.id, request)
+        : await createAdminCatalogCategory(request);
+      onSaved(catalog, editing ? 'Đã lưu thay đổi danh mục.' : 'Đã tạo danh mục mới.');
+      onClose();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể cập nhật danh mục.');
+      onError(error instanceof Error ? error.message : 'Không thể lưu danh mục.');
     } finally {
       setSaving(false);
+    }
+  }
+
+  function updateName(value: string) {
+    setName(value);
+
+    if (!editing) {
+      setSlug(slugify(value));
     }
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="grid gap-3 rounded-2xl border border-line bg-neutral-soft p-4 md:grid-cols-2"
+    <div
+      className="admin-catalog-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
     >
-      <label className="block">
-        <span className="text-xs font-black uppercase tracking-wide text-muted">Tên danh mục</span>
-        <input
-          required
-          maxLength={120}
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2"
-        />
-      </label>
-      <label className="block">
-        <span className="text-xs font-black uppercase tracking-wide text-muted">Slug</span>
-        <input
-          required
-          pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-          maxLength={160}
-          value={slug}
-          onChange={(event) => setSlug(event.target.value)}
-          className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2"
-        />
-      </label>
-      <label className="block md:col-span-2">
-        <span className="text-xs font-black uppercase tracking-wide text-muted">Mô tả</span>
-        <textarea
-          maxLength={1000}
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          className="mt-1 min-h-20 w-full rounded-xl border border-line bg-white px-3 py-2"
-        />
-      </label>
-      <label className="block">
-        <span className="text-xs font-black uppercase tracking-wide text-muted">Trạng thái</span>
-        <select
-          value={status}
-          onChange={(event) => setStatus(event.target.value as CatalogStatus)}
-          className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2"
-        >
-          <option value="ACTIVE">Đang hiển thị</option>
-          <option value="INACTIVE">Đang ẩn</option>
-        </select>
-      </label>
-      <label className="block">
-        <span className="text-xs font-black uppercase tracking-wide text-muted">Thứ tự</span>
-        <input
-          required
-          min={0}
-          max={1000000}
-          type="number"
-          value={sortOrder}
-          onChange={(event) => setSortOrder(event.target.value)}
-          className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2"
-        />
-      </label>
-      <button
-        disabled={saving}
-        type="submit"
-        className="rounded-xl border border-brand px-4 py-2 font-black text-brand disabled:opacity-60 md:col-span-2"
+      <section
+        className="admin-catalog-modal is-category"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-catalog-category-modal-title"
       >
-        {saving ? 'Đang lưu…' : 'Lưu danh mục'}
-      </button>
-    </form>
+        <header className="admin-catalog-modal-header">
+          <div className="admin-catalog-modal-title">
+            <span className="admin-catalog-modal-icon">
+              <PlusIcon />
+            </span>
+            <div>
+              <h2 id="admin-catalog-category-modal-title">
+                {editing ? 'Chỉnh sửa danh mục' : 'Thêm danh mục'}
+              </h2>
+              <p>Tạo hoặc cập nhật nhóm mặt hàng trong menu.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="admin-catalog-modal-close"
+            aria-label="Đóng"
+            onClick={onClose}
+          >
+            <CloseIcon />
+          </button>
+        </header>
+
+        <form onSubmit={submit}>
+          <div className="admin-catalog-modal-body is-category">
+            <section className="admin-catalog-form-section">
+              <div className="admin-catalog-form-grid">
+                <label>
+                  <span>Tên danh mục *</span>
+                  <input
+                    autoFocus
+                    required
+                    maxLength={120}
+                    value={name}
+                    onChange={(event) => updateName(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Slug *</span>
+                  <input
+                    required
+                    maxLength={160}
+                    pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                    value={slug}
+                    onChange={(event) => setSlug(event.target.value)}
+                  />
+                </label>
+                <label>
+                  <span>Trạng thái *</span>
+                  <select
+                    value={status}
+                    onChange={(event) => setStatus(event.target.value as CatalogStatus)}
+                  >
+                    <option value="ACTIVE">Đang hoạt động</option>
+                    <option value="INACTIVE">Ngừng hoạt động</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Thứ tự hiển thị *</span>
+                  <input
+                    required
+                    type="number"
+                    min={0}
+                    max={1000000}
+                    value={sortOrder}
+                    onChange={(event) => setSortOrder(event.target.value)}
+                  />
+                </label>
+                <label className="is-full">
+                  <span>Mô tả</span>
+                  <textarea
+                    maxLength={1000}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                  />
+                </label>
+              </div>
+            </section>
+          </div>
+
+          <footer className="admin-catalog-modal-footer">
+            <div>
+              {editing ? (
+                <button
+                  type="button"
+                  className="admin-catalog-button is-danger"
+                  onClick={() => setStatus('INACTIVE')}
+                >
+                  Ngừng hoạt động
+                </button>
+              ) : null}
+            </div>
+            <div>
+              <button type="button" className="admin-catalog-button is-secondary" onClick={onClose}>
+                Hủy
+              </button>
+              <button type="submit" className="admin-catalog-button is-primary" disabled={saving}>
+                {saving ? 'Đang lưu…' : 'Lưu danh mục'}
+              </button>
+            </div>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 
-interface ItemEditorProps {
-  item: AdminCatalogItem;
+interface ItemModalProps {
+  item: AdminCatalogItem | null;
   categories: AdminCatalogCategory[];
   cloudName: string | null;
   mediaConfigured: boolean;
-  onSaved: (catalog: AdminCatalogResponse) => void;
-  setPageError: (message: string | null) => void;
+  onClose: () => void;
+  onSaved: (catalog: AdminCatalogResponse, message: string) => void;
+  onError: (message: string) => void;
 }
 
-function ItemEditor({
+function ItemModal({
   item,
   categories,
   cloudName,
   mediaConfigured,
+  onClose,
   onSaved,
-  setPageError,
-}: ItemEditorProps) {
-  const [categoryId, setCategoryId] = useState(item.categoryId);
-  const [name, setName] = useState(item.name);
-  const [slug, setSlug] = useState(item.slug);
-  const [description, setDescription] = useState(item.description ?? '');
-  const [unitName, setUnitName] = useState(item.unitName);
-  const [priceVnd, setPriceVnd] = useState(String(item.priceVnd));
-  const [status, setStatus] = useState<CatalogStatus>(item.status);
-  const [isAvailable, setIsAvailable] = useState(item.isAvailable);
-  const [sortOrder, setSortOrder] = useState(String(item.sortOrder));
-  const [imageAlt, setImageAlt] = useState(item.image?.alt ?? item.name);
+  onError,
+}: ItemModalProps) {
+  const editing = item !== null;
+  const [categoryId, setCategoryId] = useState(item?.categoryId ?? categories[0]?.id ?? '');
+  const [name, setName] = useState(item?.name ?? '');
+  const [slug, setSlug] = useState(item?.slug ?? '');
+  const [description, setDescription] = useState(item?.description ?? '');
+  const [unitName, setUnitName] = useState(item?.unitName ?? 'chai');
+  const [priceVnd, setPriceVnd] = useState(String(item?.priceVnd ?? 0));
+  const [status, setStatus] = useState<CatalogStatus>(item?.status ?? 'ACTIVE');
+  const [isAvailable, setIsAvailable] = useState(item?.isAvailable ?? true);
+  const [sortOrder, setSortOrder] = useState(String(item?.sortOrder ?? 0));
+  const [imageAlt, setImageAlt] = useState(item?.image?.alt ?? item?.name ?? '');
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  useModalLifecycle(onClose);
+
   const imageUrl = buildCloudinaryImageUrl(
     cloudName,
-    item.image,
-    'f_auto,q_auto,c_fill,w_360,h_270',
+    item?.image ?? null,
+    'f_auto,q_auto,c_fill,w_560,h_420',
   );
+
+  function updateName(value: string) {
+    setName(value);
+
+    if (!editing) {
+      setSlug(slugify(value));
+      setImageAlt(value);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);
-    setPageError(null);
+    onError('');
+
+    const request: CreateAdminCatalogItemRequest = {
+      categoryId,
+      name,
+      slug,
+      description: toNullableText(description),
+      unitName,
+      priceVnd: Number(priceVnd),
+      status,
+      isAvailable,
+      sortOrder: Number(sortOrder),
+    };
 
     try {
-      const catalog = await updateAdminCatalogItem(item.id, {
-        categoryId,
-        name,
-        slug,
-        description: toNullableText(description),
-        unitName,
-        priceVnd: Number(priceVnd),
-        status,
-        isAvailable,
-        sortOrder: Number(sortOrder),
-      });
-      onSaved(catalog);
+      const catalog = item
+        ? await updateAdminCatalogItem(item.id, request)
+        : await createAdminCatalogItem(request);
+      onSaved(catalog, editing ? 'Đã lưu thay đổi mặt hàng.' : 'Đã tạo mặt hàng mới.');
+      onClose();
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể cập nhật mặt hàng.');
+      onError(error instanceof Error ? error.message : 'Không thể lưu mặt hàng.');
     } finally {
       setSaving(false);
     }
   }
 
-  async function uploadImage(file: File) {
+  async function uploadImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+
+    if (!file || !item) {
+      return;
+    }
+
     if (!mediaConfigured) {
-      setPageError('Cloudinary chưa được cấu hình trên máy chủ.');
-      return;
-    }
-
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setPageError('Chỉ hỗ trợ ảnh JPG, PNG hoặc WebP.');
-      return;
-    }
-
-    if (file.size > 10 * 1024 * 1024) {
-      setPageError('Ảnh phải nhỏ hơn hoặc bằng 10 MB.');
+      onError('Cloudinary chưa được cấu hình trên máy chủ.');
       return;
     }
 
     setUploading(true);
-    setPageError(null);
+    onError('');
 
     try {
-      const signed = await createAdminCatalogImageSignature(item.id);
-      const form = new FormData();
-      form.set('file', file);
-      form.set('api_key', signed.apiKey);
-      form.set('timestamp', String(signed.timestamp));
-      form.set('signature', signed.signature);
-      form.set('public_id', signed.publicId);
-      form.set('allowed_formats', signed.parameters.allowedFormats);
-      form.set('transformation', signed.parameters.transformation);
-
-      const uploadResponse = await fetch(signed.uploadUrl, { method: 'POST', body: form });
-      const uploaded = (await uploadResponse.json()) as Record<string, unknown>;
-
-      if (!uploadResponse.ok) {
-        const cloudinaryError = uploaded.error;
-        const message =
-          typeof cloudinaryError === 'object' &&
-          cloudinaryError !== null &&
-          'message' in cloudinaryError
-            ? String(cloudinaryError.message)
-            : 'Cloudinary từ chối ảnh tải lên.';
-        throw new Error(message);
-      }
-
-      const publicId = typeof uploaded.public_id === 'string' ? uploaded.public_id : '';
-      const format = typeof uploaded.format === 'string' ? uploaded.format : '';
-      const signature = typeof uploaded.signature === 'string' ? uploaded.signature : '';
-      const catalog = await attachAdminCatalogItemImage(item.id, {
-        publicId,
-        version: Number(uploaded.version),
-        width: Number(uploaded.width),
-        height: Number(uploaded.height),
-        format: format as 'jpg' | 'jpeg' | 'png' | 'webp',
-        signature,
-        alt: toNullableText(imageAlt),
-      });
-      onSaved(catalog);
+      const catalog = await uploadCatalogItemImage(item.id, file, imageAlt);
+      onSaved(catalog, item.image ? 'Đã thay ảnh mặt hàng.' : 'Đã tải ảnh mặt hàng.');
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể tải ảnh mặt hàng.');
+      onError(error instanceof Error ? error.message : 'Không thể tải ảnh mặt hàng.');
     } finally {
       setUploading(false);
     }
   }
 
   async function removeImage() {
+    if (!item?.image) {
+      return;
+    }
+
     setUploading(true);
-    setPageError(null);
+    onError('');
 
     try {
-      onSaved(await removeAdminCatalogItemImage(item.id));
+      onSaved(await removeAdminCatalogItemImage(item.id), 'Đã gỡ ảnh mặt hàng.');
     } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể gỡ ảnh mặt hàng.');
+      onError(error instanceof Error ? error.message : 'Không thể gỡ ảnh mặt hàng.');
     } finally {
       setUploading(false);
     }
   }
 
   return (
-    <article className="rounded-2xl border border-line bg-white p-4 shadow-panel">
-      <div className="grid gap-4 lg:grid-cols-[180px_1fr]">
-        <div>
-          <div className="grid aspect-[4/3] place-items-center overflow-hidden rounded-2xl bg-neutral-soft text-3xl font-black text-brand">
-            {imageUrl ? (
-              <img
-                src={imageUrl}
-                alt={item.image?.alt ?? item.name}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              item.name.slice(0, 1).toUpperCase()
-            )}
-          </div>
-          <label className="mt-3 block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Alt ảnh</span>
-            <input
-              maxLength={200}
-              value={imageAlt}
-              onChange={(event) => setImageAlt(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2 text-sm"
-            />
-          </label>
-          <label
-            className={`mt-3 block rounded-xl px-3 py-2 text-center text-sm font-black ${mediaConfigured ? 'cursor-pointer bg-brand text-white' : 'cursor-not-allowed bg-neutral-soft text-muted'}`}
-          >
-            {uploading ? 'Đang xử lý…' : item.image ? 'Thay ảnh' : 'Tải ảnh'}
-            <input
-              className="sr-only"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              disabled={!mediaConfigured || uploading}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.currentTarget.value = '';
-                if (file) void uploadImage(file);
-              }}
-            />
-          </label>
-          {item.image ? (
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => void removeImage()}
-              className="mt-2 w-full rounded-xl border border-danger px-3 py-2 text-sm font-black text-danger disabled:opacity-60"
-            >
-              Gỡ ảnh hiện tại
-            </button>
-          ) : null}
-        </div>
-
-        <form onSubmit={submit} className="grid gap-3 md:grid-cols-2">
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">
-              Tên mặt hàng
+    <div
+      className="admin-catalog-modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        className="admin-catalog-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="admin-catalog-item-modal-title"
+      >
+        <header className="admin-catalog-modal-header">
+          <div className="admin-catalog-modal-title">
+            <span className="admin-catalog-modal-icon">
+              {editing ? <EditIcon /> : <PlusIcon />}
             </span>
-            <input
-              required
-              maxLength={160}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Slug</span>
-            <input
-              required
-              pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-              maxLength={160}
-              value={slug}
-              onChange={(event) => setSlug(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Danh mục</span>
-            <select
-              value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            >
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Đơn vị</span>
-            <input
-              required
-              maxLength={40}
-              value={unitName}
-              onChange={(event) => setUnitName(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Giá VND</span>
-            <input
-              required
-              min={0}
-              max={2000000000}
-              type="number"
-              value={priceVnd}
-              onChange={(event) => setPriceVnd(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Thứ tự</span>
-            <input
-              required
-              min={0}
-              max={1000000}
-              type="number"
-              value={sortOrder}
-              onChange={(event) => setSortOrder(event.target.value)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
-          <label className="block">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Bản ghi</span>
-            <select
-              value={status}
-              onChange={(event) => setStatus(event.target.value as CatalogStatus)}
-              className="mt-1 w-full rounded-xl border border-line px-3 py-2"
-            >
-              <option value="ACTIVE">Đang dùng</option>
-              <option value="INACTIVE">Đang ẩn</option>
-            </select>
-          </label>
-          <label className="flex items-center gap-3 rounded-xl border border-line px-3 py-2">
-            <input
-              type="checkbox"
-              checked={isAvailable}
-              onChange={(event) => setIsAvailable(event.target.checked)}
-            />
-            <span className="text-sm font-black">Đang bán</span>
-          </label>
-          <label className="block md:col-span-2">
-            <span className="text-xs font-black uppercase tracking-wide text-muted">Mô tả</span>
-            <textarea
-              maxLength={1000}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              className="mt-1 min-h-20 w-full rounded-xl border border-line px-3 py-2"
-            />
-          </label>
+            <div>
+              <h2 id="admin-catalog-item-modal-title">
+                {editing ? 'Chỉnh sửa mặt hàng' : 'Thêm mặt hàng'}
+              </h2>
+              <p>
+                {editing
+                  ? 'Cập nhật thông tin, trạng thái bán và ảnh đại diện.'
+                  : 'Tạo mặt hàng trước, sau đó mở chỉnh sửa để tải ảnh.'}
+              </p>
+            </div>
+          </div>
           <button
-            disabled={saving}
-            type="submit"
-            className="rounded-xl bg-brand px-4 py-3 font-black text-white disabled:opacity-60 md:col-span-2"
+            type="button"
+            className="admin-catalog-modal-close"
+            aria-label="Đóng"
+            onClick={onClose}
           >
-            {saving ? 'Đang lưu…' : 'Lưu mặt hàng'}
+            <CloseIcon />
           </button>
+        </header>
+
+        <form onSubmit={submit}>
+          <div className="admin-catalog-modal-body">
+            <aside className="admin-catalog-media-panel">
+              <div className="admin-catalog-media-preview">
+                {imageUrl ? (
+                  <img src={imageUrl} alt={item?.image?.alt ?? item?.name ?? ''} />
+                ) : (
+                  <span>{initials(name)}</span>
+                )}
+              </div>
+
+              <label
+                className={`admin-catalog-image-upload ${
+                  editing && mediaConfigured ? '' : 'is-disabled'
+                }`}
+              >
+                <ImageIcon />
+                {uploading ? 'Đang xử lý…' : item?.image ? 'Thay ảnh' : 'Tải ảnh'}
+                <input
+                  className="sr-only"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  disabled={!editing || !mediaConfigured || uploading}
+                  onChange={(event) => void uploadImage(event)}
+                />
+              </label>
+
+              {editing ? (
+                <label className="admin-catalog-image-alt">
+                  <span>Alt ảnh</span>
+                  <input
+                    maxLength={200}
+                    value={imageAlt}
+                    onChange={(event) => setImageAlt(event.target.value)}
+                  />
+                </label>
+              ) : null}
+
+              {item?.image ? (
+                <button
+                  type="button"
+                  className="admin-catalog-button is-secondary is-full"
+                  disabled={uploading}
+                  onClick={() => void removeImage()}
+                >
+                  Gỡ ảnh hiện tại
+                </button>
+              ) : null}
+
+              <p className="admin-catalog-media-note">
+                {editing
+                  ? mediaConfigured
+                    ? 'Hỗ trợ JPG, PNG, WebP tối đa 10 MB. Ảnh được tải trực tiếp lên Cloudinary.'
+                    : 'Cloudinary chưa cấu hình — các thao tác CRUD khác vẫn hoạt động.'
+                  : 'Theo flow hiện tại, cần tạo mặt hàng trước rồi mới tải ảnh bằng signed upload.'}
+              </p>
+            </aside>
+
+            <div className="admin-catalog-form-area">
+              <section className="admin-catalog-form-section">
+                <h3>Thông tin cơ bản</h3>
+                <div className="admin-catalog-form-grid">
+                  <label>
+                    <span>Tên mặt hàng *</span>
+                    <input
+                      autoFocus
+                      required
+                      maxLength={160}
+                      value={name}
+                      onChange={(event) => updateName(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Slug *</span>
+                    <input
+                      required
+                      maxLength={160}
+                      pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
+                      value={slug}
+                      onChange={(event) => setSlug(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Danh mục *</span>
+                    <select
+                      required
+                      value={categoryId}
+                      onChange={(event) => setCategoryId(event.target.value)}
+                    >
+                      {categories.map((category) => (
+                        <option key={category.id} value={category.id}>
+                          {category.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span>Đơn vị *</span>
+                    <input
+                      required
+                      maxLength={40}
+                      value={unitName}
+                      onChange={(event) => setUnitName(event.target.value)}
+                    />
+                  </label>
+                  <label className="is-full">
+                    <span>Mô tả</span>
+                    <textarea
+                      maxLength={1000}
+                      value={description}
+                      onChange={(event) => setDescription(event.target.value)}
+                    />
+                  </label>
+                </div>
+              </section>
+
+              <section className="admin-catalog-form-section">
+                <h3>Giá và trạng thái</h3>
+                <div className="admin-catalog-form-grid">
+                  <label>
+                    <span>Giá bán (VND) *</span>
+                    <input
+                      required
+                      type="number"
+                      min={0}
+                      max={2000000000}
+                      value={priceVnd}
+                      onChange={(event) => setPriceVnd(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Thứ tự hiển thị *</span>
+                    <input
+                      required
+                      type="number"
+                      min={0}
+                      max={1000000}
+                      value={sortOrder}
+                      onChange={(event) => setSortOrder(event.target.value)}
+                    />
+                  </label>
+                  <label>
+                    <span>Trạng thái dữ liệu *</span>
+                    <select
+                      value={status}
+                      onChange={(event) => setStatus(event.target.value as CatalogStatus)}
+                    >
+                      <option value="ACTIVE">Đang hoạt động</option>
+                      <option value="INACTIVE">Ngừng hoạt động</option>
+                    </select>
+                  </label>
+                  <div className="admin-catalog-availability">
+                    <div>
+                      <strong>Đang bán trên menu khách</strong>
+                      <span>Tắt để tạm ẩn mà không xóa mặt hàng.</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={`admin-catalog-switch ${isAvailable ? 'is-on' : ''}`}
+                      aria-label="Bật tắt trạng thái bán"
+                      aria-pressed={isAvailable}
+                      onClick={() => setIsAvailable((current) => !current)}
+                    />
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          <footer className="admin-catalog-modal-footer">
+            <div>
+              {editing ? (
+                <button
+                  type="button"
+                  className="admin-catalog-button is-danger"
+                  onClick={() => {
+                    setStatus('INACTIVE');
+                    setIsAvailable(false);
+                  }}
+                >
+                  Ngừng hoạt động
+                </button>
+              ) : null}
+            </div>
+            <div>
+              <button type="button" className="admin-catalog-button is-secondary" onClick={onClose}>
+                Hủy
+              </button>
+              <button
+                type="submit"
+                className="admin-catalog-button is-primary"
+                disabled={saving || categories.length === 0}
+              >
+                {saving ? 'Đang lưu…' : editing ? 'Lưu thay đổi' : 'Tạo mặt hàng'}
+              </button>
+            </div>
+          </footer>
         </form>
-      </div>
-    </article>
+      </section>
+    </div>
+  );
+}
+
+function CatalogLoading() {
+  return (
+    <main className="admin-catalog-page admin-catalog-state-page" aria-busy="true">
+      <section className="admin-catalog-state-card">
+        <span className="admin-catalog-spinner" />
+        <h1>Đang tải catalog</h1>
+        <p>Đang đồng bộ danh mục, mặt hàng và trạng thái ảnh.</p>
+      </section>
+    </main>
   );
 }
 
 export function AdminCatalogPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { realtimeStatus } = useAdminAlertRuntime();
+
   const [pageError, setPageError] = useState<string | null>(null);
-  const [creatingCategory, setCreatingCategory] = useState(false);
-  const [creatingItem, setCreatingItem] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('ALL');
+  const [visibilityFilter, setVisibilityFilter] = useState<CatalogVisibilityFilter>('ALL');
+  const [sort, setSort] = useState<CatalogSort>('DEFAULT');
+  const [categoryModal, setCategoryModal] = useState<CategoryModalTarget | null>(null);
+  const [itemModal, setItemModal] = useState<ItemModalTarget | null>(null);
+
+  const closeCategoryModal = useCallback(() => setCategoryModal(null), []);
+  const closeItemModal = useCallback(() => setItemModal(null), []);
+
   const sessionQuery = useQuery({
     queryKey: ['admin', 'session'],
     queryFn: getAdminSession,
@@ -472,6 +826,13 @@ export function AdminCatalogPage() {
     enabled: sessionQuery.isSuccess,
     retry: false,
     staleTime: 10_000,
+  });
+  const logoutMutation = useMutation({
+    mutationFn: logoutAdmin,
+    onSettled() {
+      queryClient.removeQueries({ queryKey: ['admin'] });
+      void navigate('/admin/login', { replace: true });
+    },
   });
 
   useEffect(() => {
@@ -491,79 +852,36 @@ export function AdminCatalogPage() {
     sessionQuery.isError,
   ]);
 
-  function onSaved(catalog: AdminCatalogResponse) {
-    replaceCatalog(queryClient, catalog);
-  }
-
-  async function submitNewCategory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setCreatingCategory(true);
-    setPageError(null);
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    const values: CreateAdminCatalogCategoryRequest = {
-      name: readFormText(form, 'name'),
-      slug: readFormText(form, 'slug'),
-      description: toNullableText(readFormText(form, 'description')),
-      status: 'ACTIVE',
-      sortOrder: Number(form.get('sortOrder') ?? 0),
-    };
-
-    try {
-      onSaved(await createAdminCatalogCategory(values));
-      formElement.reset();
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể tạo danh mục.');
-    } finally {
-      setCreatingCategory(false);
+  useEffect(() => {
+    if (!notice) {
+      return;
     }
-  }
 
-  async function submitNewItem(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setCreatingItem(true);
+    const timer = window.setTimeout(() => setNotice(null), 2800);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  function onSaved(catalog: AdminCatalogResponse, message: string) {
+    queryClient.setQueryData(catalogQueryKey, catalog);
     setPageError(null);
-    const formElement = event.currentTarget;
-    const form = new FormData(formElement);
-    const values: CreateAdminCatalogItemRequest = {
-      categoryId: readFormText(form, 'categoryId'),
-      name: readFormText(form, 'name'),
-      slug: readFormText(form, 'slug'),
-      description: toNullableText(readFormText(form, 'description')),
-      unitName: readFormText(form, 'unitName'),
-      priceVnd: Number(form.get('priceVnd') ?? 0),
-      status: 'ACTIVE',
-      isAvailable: true,
-      sortOrder: Number(form.get('sortOrder') ?? 0),
-    };
-
-    try {
-      onSaved(await createAdminCatalogItem(values));
-      formElement.reset();
-    } catch (error) {
-      setPageError(error instanceof Error ? error.message : 'Không thể tạo mặt hàng.');
-    } finally {
-      setCreatingItem(false);
-    }
+    setNotice(message);
   }
 
   if (sessionQuery.isPending || (sessionQuery.isSuccess && catalogQuery.isPending)) {
-    return (
-      <main className="grid min-h-screen place-items-center bg-surface text-ink">
-        <p className="font-bold text-muted">Đang tải catalog…</p>
-      </main>
-    );
+    return <CatalogLoading />;
   }
 
-  if (sessionQuery.isError || catalogQuery.isError || !catalogQuery.data) {
+  if (sessionQuery.isError || catalogQuery.isError || !sessionQuery.data || !catalogQuery.data) {
     return (
-      <main className="grid min-h-screen place-items-center bg-surface px-5 text-ink">
-        <section className="max-w-md rounded-2xl border border-line bg-white p-6 text-center shadow-panel">
-          <h1 className="text-xl font-black">Không thể tải catalog</h1>
+      <main className="admin-catalog-page admin-catalog-state-page">
+        <section className="admin-catalog-state-card">
+          <h1>Không thể tải catalog</h1>
+          <p>Kiểm tra kết nối rồi thử tải lại dữ liệu.</p>
           <button
             type="button"
-            onClick={() => void catalogQuery.refetch()}
-            className="mt-5 rounded-xl bg-brand px-5 py-3 font-bold text-white"
+            onClick={() => {
+              void queryClient.invalidateQueries({ queryKey: ['admin'] });
+            }}
           >
             Thử lại
           </button>
@@ -573,210 +891,386 @@ export function AdminCatalogPage() {
   }
 
   const catalog = catalogQuery.data;
-  const allItems = catalog.categories.flatMap((category) => category.items);
+  const allItems: FlatCatalogItem[] = catalog.categories.flatMap((category) =>
+    category.items.map((item) => ({ item, category })),
+  );
+  const visibleItemCount = allItems.filter(({ item, category }) =>
+    itemIsVisible(item, category),
+  ).length;
+
+  const filteredItems = [...allItems]
+    .filter(({ item, category }) => {
+      const normalizedSearch = search.trim().toLocaleLowerCase('vi-VN');
+      const matchesSearch =
+        normalizedSearch.length === 0 ||
+        [item.name, item.slug, item.description ?? '', item.unitName, category.name]
+          .join(' ')
+          .toLocaleLowerCase('vi-VN')
+          .includes(normalizedSearch);
+      const matchesCategory = categoryFilter === 'ALL' || category.id === categoryFilter;
+      const visible = itemIsVisible(item, category);
+      const matchesVisibility =
+        visibilityFilter === 'ALL' ||
+        (visibilityFilter === 'VISIBLE' && visible) ||
+        (visibilityFilter === 'HIDDEN' && !visible);
+
+      return matchesSearch && matchesCategory && matchesVisibility;
+    })
+    .sort((left, right) => {
+      if (sort === 'NAME') {
+        return left.item.name.localeCompare(right.item.name, 'vi-VN');
+      }
+
+      if (sort === 'PRICE_ASC') {
+        return left.item.priceVnd - right.item.priceVnd;
+      }
+
+      if (sort === 'PRICE_DESC') {
+        return right.item.priceVnd - left.item.priceVnd;
+      }
+
+      return (
+        left.category.sortOrder - right.category.sortOrder ||
+        left.item.sortOrder - right.item.sortOrder ||
+        left.item.name.localeCompare(right.item.name, 'vi-VN')
+      );
+    });
+
+  const editingCategory =
+    categoryModal?.mode === 'EDIT'
+      ? (catalog.categories.find((category) => category.id === categoryModal.categoryId) ?? null)
+      : null;
+  const editingItem =
+    itemModal?.mode === 'EDIT'
+      ? (allItems.find(({ item }) => item.id === itemModal.itemId)?.item ?? null)
+      : null;
 
   return (
-    <main className="min-h-screen bg-surface px-4 py-6 text-ink sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="rounded-3xl border border-line bg-white p-5 shadow-panel sm:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    <main className="admin-catalog-page">
+      <div className="admin-catalog-shell">
+        <AdminPageHeader
+          activePage="catalog"
+          admin={sessionQuery.data.admin}
+          realtimeStatus={realtimeStatus}
+          logoutPending={logoutMutation.isPending}
+          onLogout={() => logoutMutation.mutate()}
+        />
+
+        <section className="admin-catalog-content">
+          <header className="admin-catalog-heading">
             <div>
-              <p className="text-sm font-bold uppercase tracking-[0.16em] text-brand">Catalog V1</p>
-              <h1 className="mt-2 text-3xl font-black">Danh mục và mặt hàng</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-muted">
-                V1 không quản lý tồn kho hoặc số lượng. Mặt hàng được xem là vô hạn và chỉ ngừng bán
-                khi tắt “Đang bán” hoặc chuyển bản ghi sang “Đang ẩn”.
-              </p>
+              <h1>Quản lý catalog</h1>
+              <p>Danh sách chỉ đọc. Thêm mới và chỉnh sửa được thực hiện trong modal riêng.</p>
             </div>
-            <Link
-              to="/admin"
-              className="rounded-xl border border-line px-4 py-3 text-center font-black hover:border-brand hover:text-brand"
+
+            <dl className="admin-catalog-kpis">
+              <div>
+                <dt>Danh mục</dt>
+                <dd>{catalog.categories.length}</dd>
+              </div>
+              <div>
+                <dt>Mặt hàng</dt>
+                <dd>{allItems.length}</dd>
+              </div>
+              <div>
+                <dt>Đang bán</dt>
+                <dd>{visibleItemCount}</dd>
+              </div>
+            </dl>
+          </header>
+
+          <div className="admin-catalog-toolbar">
+            <label className="admin-catalog-search">
+              <SearchIcon />
+              <input
+                type="search"
+                placeholder="Tìm tên món, slug hoặc mô tả..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </label>
+
+            <select
+              aria-label="Lọc danh mục"
+              value={categoryFilter}
+              onChange={(event) => setCategoryFilter(event.target.value)}
             >
-              Về dashboard
-            </Link>
-          </div>
-          <div
-            className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${catalog.media.configured ? 'bg-success-soft text-success' : 'bg-neutral-soft text-muted'}`}
-          >
-            {catalog.media.configured
-              ? `Cloudinary đã sẵn sàng: ${catalog.media.cloudName}`
-              : 'Cloudinary chưa cấu hình — CRUD catalog vẫn dùng được, chức năng tải ảnh đang khóa.'}
-          </div>
-        </header>
+              <option value="ALL">Tất cả danh mục</option>
+              {catalog.categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
 
-        {pageError ? (
-          <div className="mt-4 rounded-xl bg-danger-soft px-4 py-3 font-bold text-danger">
-            {pageError}
-          </div>
-        ) : null}
+            <select
+              aria-label="Lọc trạng thái"
+              value={visibilityFilter}
+              onChange={(event) =>
+                setVisibilityFilter(event.target.value as CatalogVisibilityFilter)
+              }
+            >
+              <option value="ALL">Mọi trạng thái</option>
+              <option value="VISIBLE">Đang bán</option>
+              <option value="HIDDEN">Đang ẩn</option>
+            </select>
 
-        <section className="mt-6 grid gap-5 lg:grid-cols-2">
-          <form
-            onSubmit={submitNewCategory}
-            className="rounded-2xl border border-line bg-white p-5 shadow-panel"
-          >
-            <h2 className="text-xl font-black">Tạo danh mục</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <input
-                name="name"
-                required
-                maxLength={120}
-                placeholder="Tên danh mục"
-                className="rounded-xl border border-line px-3 py-2"
-              />
-              <input
-                name="slug"
-                required
-                pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                maxLength={160}
-                placeholder="slug-khong-dau"
-                className="rounded-xl border border-line px-3 py-2"
-              />
-              <textarea
-                name="description"
-                maxLength={1000}
-                placeholder="Mô tả tùy chọn"
-                className="min-h-20 rounded-xl border border-line px-3 py-2 sm:col-span-2"
-              />
-              <input
-                name="sortOrder"
-                required
-                min={0}
-                max={1000000}
-                type="number"
-                defaultValue={0}
-                className="rounded-xl border border-line px-3 py-2"
-              />
-              <button
-                disabled={creatingCategory}
-                className="rounded-xl bg-brand px-4 py-2 font-black text-white disabled:opacity-60"
-              >
-                {creatingCategory ? 'Đang tạo…' : 'Tạo danh mục'}
+            <select
+              aria-label="Sắp xếp"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as CatalogSort)}
+            >
+              <option value="DEFAULT">Thứ tự hiển thị</option>
+              <option value="NAME">Tên A–Z</option>
+              <option value="PRICE_DESC">Giá cao trước</option>
+              <option value="PRICE_ASC">Giá thấp trước</option>
+            </select>
+
+            <button
+              type="button"
+              className="admin-catalog-button is-secondary"
+              onClick={() => {
+                setPageError(null);
+                setCategoryModal({ mode: 'CREATE' });
+              }}
+            >
+              <PlusIcon />
+              Thêm danh mục
+            </button>
+
+            <button
+              type="button"
+              className="admin-catalog-button is-primary"
+              disabled={catalog.categories.length === 0}
+              onClick={() => {
+                setPageError(null);
+                setItemModal({ mode: 'CREATE' });
+              }}
+            >
+              <PlusIcon />
+              Thêm mặt hàng
+            </button>
+          </div>
+
+          {catalog.media.configured ? null : (
+            <div className="admin-catalog-media-warning">
+              Cloudinary chưa cấu hình — CRUD catalog vẫn hoạt động, thao tác tải ảnh đang khóa.
+            </div>
+          )}
+
+          {pageError ? (
+            <div className="admin-catalog-error" role="alert">
+              <strong>Không thể hoàn tất thao tác</strong>
+              <span>{pageError}</span>
+              <button type="button" aria-label="Đóng lỗi" onClick={() => setPageError(null)}>
+                <CloseIcon />
               </button>
             </div>
-          </form>
+          ) : null}
 
-          <form
-            onSubmit={submitNewItem}
-            className="rounded-2xl border border-line bg-white p-5 shadow-panel"
-          >
-            <h2 className="text-xl font-black">Tạo mặt hàng</h2>
-            {catalog.categories.length === 0 ? (
-              <p className="mt-4 text-sm text-muted">Tạo danh mục trước khi tạo mặt hàng.</p>
-            ) : (
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <select
-                  name="categoryId"
-                  required
-                  className="rounded-xl border border-line px-3 py-2"
-                >
-                  {catalog.categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  name="name"
-                  required
-                  maxLength={160}
-                  placeholder="Tên mặt hàng"
-                  className="rounded-xl border border-line px-3 py-2"
-                />
-                <input
-                  name="slug"
-                  required
-                  pattern="[a-z0-9]+(?:-[a-z0-9]+)*"
-                  maxLength={160}
-                  placeholder="slug-khong-dau"
-                  className="rounded-xl border border-line px-3 py-2"
-                />
-                <input
-                  name="unitName"
-                  required
-                  maxLength={40}
-                  placeholder="Đơn vị: chai, lon…"
-                  className="rounded-xl border border-line px-3 py-2"
-                />
-                <input
-                  name="priceVnd"
-                  required
-                  min={0}
-                  max={2000000000}
-                  type="number"
-                  placeholder="Giá VND"
-                  className="rounded-xl border border-line px-3 py-2"
-                />
-                <input
-                  name="sortOrder"
-                  required
-                  min={0}
-                  max={1000000}
-                  type="number"
-                  defaultValue={0}
-                  className="rounded-xl border border-line px-3 py-2"
-                />
-                <textarea
-                  name="description"
-                  maxLength={1000}
-                  placeholder="Mô tả tùy chọn"
-                  className="min-h-20 rounded-xl border border-line px-3 py-2 sm:col-span-2"
-                />
+          <div className="admin-catalog-layout">
+            <aside className="admin-catalog-sidebar">
+              <div className="admin-catalog-sidebar-header">
+                <h2>Bộ lọc</h2>
                 <button
-                  disabled={creatingItem}
-                  className="rounded-xl bg-brand px-4 py-2 font-black text-white disabled:opacity-60 sm:col-span-2"
+                  type="button"
+                  onClick={() => {
+                    setSearch('');
+                    setCategoryFilter('ALL');
+                    setVisibilityFilter('ALL');
+                    setSort('DEFAULT');
+                  }}
                 >
-                  {creatingItem ? 'Đang tạo…' : 'Tạo mặt hàng'}
+                  Đặt lại
                 </button>
               </div>
-            )}
-          </form>
-        </section>
 
-        <section className="mt-6 space-y-6">
-          <div className="flex items-end justify-between gap-4">
-            <div>
-              <p className="text-sm font-bold uppercase tracking-[0.16em] text-brand">
-                Đang quản lý
-              </p>
-              <h2 className="mt-1 text-2xl font-black">
-                {catalog.categories.length} danh mục · {allItems.length} mặt hàng
-              </h2>
-            </div>
-          </div>
-          {catalog.categories.map((category) => (
-            <section
-              key={category.id}
-              className="rounded-3xl border border-line bg-white p-5 shadow-panel sm:p-6"
-            >
-              <CategoryEditor
-                key={`${category.id}:${category.updatedAt}`}
-                category={category}
-                onSaved={onSaved}
-                setPageError={setPageError}
-              />
-              <div className="mt-5 space-y-4">
-                {category.items.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-line p-4 text-sm text-muted">
-                    Danh mục chưa có mặt hàng.
-                  </p>
-                ) : (
-                  category.items.map((item) => (
-                    <ItemEditor
-                      key={item.id}
-                      item={item}
-                      categories={catalog.categories}
-                      cloudName={catalog.media.cloudName}
-                      mediaConfigured={catalog.media.configured}
-                      onSaved={onSaved}
-                      setPageError={setPageError}
-                    />
-                  ))
-                )}
+              <section className="admin-catalog-filter-group">
+                <p>Danh mục</p>
+                <div>
+                  <button
+                    type="button"
+                    className={categoryFilter === 'ALL' ? 'is-active' : ''}
+                    onClick={() => setCategoryFilter('ALL')}
+                  >
+                    <span>Tất cả</span>
+                    <b>{allItems.length}</b>
+                  </button>
+                  {catalog.categories.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className={categoryFilter === category.id ? 'is-active' : ''}
+                      onClick={() => setCategoryFilter(category.id)}
+                    >
+                      <span>{category.name}</span>
+                      <b>{category.items.length}</b>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <section className="admin-catalog-filter-group">
+                <p>Trạng thái</p>
+                <div>
+                  <button
+                    type="button"
+                    className={visibilityFilter === 'ALL' ? 'is-active' : ''}
+                    onClick={() => setVisibilityFilter('ALL')}
+                  >
+                    <span>Tất cả</span>
+                    <b>{allItems.length}</b>
+                  </button>
+                  <button
+                    type="button"
+                    className={visibilityFilter === 'VISIBLE' ? 'is-active' : ''}
+                    onClick={() => setVisibilityFilter('VISIBLE')}
+                  >
+                    <span>Đang bán</span>
+                    <b>{visibleItemCount}</b>
+                  </button>
+                  <button
+                    type="button"
+                    className={visibilityFilter === 'HIDDEN' ? 'is-active' : ''}
+                    onClick={() => setVisibilityFilter('HIDDEN')}
+                  >
+                    <span>Đang ẩn</span>
+                    <b>{allItems.length - visibleItemCount}</b>
+                  </button>
+                </div>
+              </section>
+
+              <section className="admin-catalog-filter-group is-management">
+                <p>Quản lý danh mục</p>
+                <div>
+                  {catalog.categories.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      className={category.status === 'INACTIVE' ? 'is-inactive' : ''}
+                      onClick={() => {
+                        setPageError(null);
+                        setCategoryModal({ mode: 'EDIT', categoryId: category.id });
+                      }}
+                    >
+                      <span>{category.name}</span>
+                      <EditIcon />
+                    </button>
+                  ))}
+                </div>
+              </section>
+            </aside>
+
+            <section className="admin-catalog-main">
+              <div className="admin-catalog-result-row">
+                <div>
+                  <strong>{filteredItems.length} mặt hàng</strong>
+                  <span> · Mặc định sắp theo thứ tự hiển thị</span>
+                </div>
               </div>
+
+              {filteredItems.length === 0 ? (
+                <div className="admin-catalog-empty">
+                  <strong>Không tìm thấy mặt hàng</strong>
+                  <p>Đổi từ khóa hoặc đặt lại bộ lọc.</p>
+                </div>
+              ) : (
+                <div className="admin-catalog-grid">
+                  {filteredItems.map(({ item, category }) => {
+                    const imageUrl = buildCloudinaryImageUrl(
+                      catalog.media.cloudName,
+                      item.image,
+                      'f_auto,q_auto,c_fill,w_480,h_360',
+                    );
+                    const statusClass = itemStatusClass(item, category);
+
+                    return (
+                      <article key={item.id} className={`admin-catalog-card ${statusClass}`}>
+                        <div className="admin-catalog-card-visual">
+                          {imageUrl ? (
+                            <img src={imageUrl} alt={item.image?.alt ?? item.name} />
+                          ) : (
+                            <span className="admin-catalog-card-fallback">
+                              {initials(item.name)}
+                            </span>
+                          )}
+
+                          <span className="admin-catalog-status-chip">
+                            {itemStatusLabel(item, category)}
+                          </span>
+
+                          <button
+                            type="button"
+                            className="admin-catalog-card-edit-icon"
+                            aria-label={`Chỉnh sửa ${item.name}`}
+                            onClick={() => {
+                              setPageError(null);
+                              setItemModal({ mode: 'EDIT', itemId: item.id });
+                            }}
+                          >
+                            <EditIcon />
+                          </button>
+                        </div>
+
+                        <div className="admin-catalog-card-body">
+                          <span className="admin-catalog-category-label">{category.name}</span>
+                          <h3>{item.name}</h3>
+                          <p>{item.description ?? 'Chưa có mô tả cho mặt hàng này.'}</p>
+
+                          <footer>
+                            <div>
+                              <strong>{moneyFormatter.format(item.priceVnd)}</strong>
+                              <span>/ {item.unitName}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPageError(null);
+                                setItemModal({ mode: 'EDIT', itemId: item.id });
+                              }}
+                            >
+                              Chỉnh sửa
+                            </button>
+                          </footer>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
             </section>
-          ))}
+          </div>
         </section>
+      </div>
+
+      {categoryModal ? (
+        <CategoryModal
+          key={
+            categoryModal.mode === 'EDIT' ? `edit:${categoryModal.categoryId}` : 'create-category'
+          }
+          category={editingCategory}
+          onClose={closeCategoryModal}
+          onSaved={onSaved}
+          onError={(message) => setPageError(message || null)}
+        />
+      ) : null}
+
+      {itemModal ? (
+        <ItemModal
+          key={itemModal.mode === 'EDIT' ? `edit:${itemModal.itemId}` : 'create-item'}
+          item={editingItem}
+          categories={catalog.categories}
+          cloudName={catalog.media.cloudName}
+          mediaConfigured={catalog.media.configured}
+          onClose={closeItemModal}
+          onSaved={onSaved}
+          onError={(message) => setPageError(message || null)}
+        />
+      ) : null}
+
+      <div className={`admin-catalog-toast ${notice ? 'is-visible' : ''}`} role="status">
+        <span>✓</span>
+        <strong>{notice ?? 'Đã lưu thay đổi.'}</strong>
       </div>
     </main>
   );

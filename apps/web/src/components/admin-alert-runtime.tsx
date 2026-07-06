@@ -19,16 +19,60 @@ import {
   resolveAdminServiceRequest,
   updateAdminOrderStatus,
 } from '../lib/admin-api';
+import {
+  adminAlertRepeatDelay,
+  type AdminAlertAudioEngine,
+  type AdminAlertEscalationLevel,
+  createAdminAlertAudioEngine,
+} from '../features/admin-alert/admin-alert-audio';
 import { type AdminRealtimeStatus, useAdminRealtime } from '../lib/admin-realtime';
 
 const AUDIO_OWNER_KEY = 'nhdp-admin-alert-audio-owner';
+const AUDIO_PREFERENCE_KEY = 'nhdp-admin-alert-audio-preference-v1';
 const AUDIO_OWNER_TTL_MS = 6_000;
 const AUDIO_OWNER_RENEW_MS = 2_000;
 const EMPTY_ALERTS: AdminAlert[] = [];
 
+type AdminAlertAudioStatus =
+  'initializing' | 'ready' | 'needs-interaction' | 'muted' | 'unsupported' | 'error';
+
+interface AudioPreference {
+  desired: boolean;
+  lastSuccessfulAt?: string;
+}
+
 interface AudioOwnerLease {
   tabId: string;
   expiresAt: number;
+}
+
+function readAudioPreference(): AudioPreference {
+  try {
+    const value = localStorage.getItem(AUDIO_PREFERENCE_KEY);
+
+    if (!value) {
+      return { desired: true };
+    }
+
+    const parsed = JSON.parse(value) as Partial<AudioPreference>;
+
+    return {
+      desired: parsed.desired !== false,
+      ...(typeof parsed.lastSuccessfulAt === 'string'
+        ? { lastSuccessfulAt: parsed.lastSuccessfulAt }
+        : {}),
+    };
+  } catch {
+    return { desired: true };
+  }
+}
+
+function writeAudioPreference(preference: AudioPreference): void {
+  try {
+    localStorage.setItem(AUDIO_PREFERENCE_KEY, JSON.stringify(preference));
+  } catch {
+    // Audio still works for the current session when storage is unavailable.
+  }
 }
 
 interface AdminAlertRuntimeValue {
@@ -92,39 +136,7 @@ function createTabId(): string {
   return crypto.randomUUID();
 }
 
-function playTone(
-  context: AudioContext,
-  frequency: number,
-  startAt: number,
-  durationSeconds: number,
-  gainValue: number,
-  type: OscillatorType,
-): void {
-  const oscillator = context.createOscillator();
-  const gain = context.createGain();
-
-  oscillator.type = type;
-  oscillator.frequency.setValueAtTime(frequency, startAt);
-  gain.gain.setValueAtTime(0.0001, startAt);
-  gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.015);
-  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + durationSeconds);
-  oscillator.connect(gain);
-  gain.connect(context.destination);
-  oscillator.start(startAt);
-  oscillator.stop(startAt + durationSeconds + 0.03);
-}
-
-function playRingBurst(
-  context: AudioContext,
-  startAt: number,
-  durationSeconds: number,
-  gainValue: number,
-): void {
-  playTone(context, 760, startAt, durationSeconds, gainValue, 'triangle');
-  playTone(context, 1_140, startAt, durationSeconds, gainValue * 0.52, 'square');
-}
-
-function alertEscalationLevel(createdAt: string): 0 | 1 | 2 {
+function alertEscalationLevel(createdAt: string): AdminAlertEscalationLevel {
   const waitingMs = Math.max(0, Date.now() - Date.parse(createdAt));
 
   if (waitingMs >= 30_000) {
@@ -134,45 +146,37 @@ function alertEscalationLevel(createdAt: string): 0 | 1 | 2 {
   return waitingMs >= 15_000 ? 1 : 0;
 }
 
-const serviceRequestRepeatDelays = [3_000, 2_500, 2_100] as const;
-const orderRepeatDelays = [4_200, 3_500, 2_900] as const;
-const serviceRequestGains = [0.25, 0.29, 0.33] as const;
-const orderPrimaryGains = [0.22, 0.25, 0.28] as const;
-const orderAccentGains = [0.13, 0.15, 0.17] as const;
-
-function alertRepeatDelay(kind: AdminAlert['kind'], level: 0 | 1 | 2): number {
-  return kind === 'SERVICE_REQUEST' ? serviceRequestRepeatDelays[level] : orderRepeatDelays[level];
+function audioStatusLabel(status: AdminAlertAudioStatus): string {
+  switch (status) {
+    case 'ready':
+      return 'Âm thanh sẵn sàng';
+    case 'muted':
+      return 'Âm thanh đã tắt · Bật lại';
+    case 'unsupported':
+      return 'Trình duyệt không hỗ trợ âm thanh';
+    case 'error':
+      return 'Thử bật lại âm thanh';
+    case 'initializing':
+      return 'Đang chuẩn bị âm thanh…';
+    case 'needs-interaction':
+      return 'Nhấn để kích hoạt âm thanh';
+  }
 }
 
-function playAlertPattern(
-  context: AudioContext,
-  kind: AdminAlert['kind'],
-  level: 0 | 1 | 2 = 0,
-): void {
-  const now = context.currentTime + 0.02;
-
-  if (kind === 'SERVICE_REQUEST') {
-    const gain = serviceRequestGains[level];
-    playRingBurst(context, now, 0.28, gain);
-    playRingBurst(context, now + 0.36, 0.28, gain);
-    playRingBurst(context, now + 0.94, 0.28, gain);
-    playRingBurst(context, now + 1.3, 0.34, gain);
-
-    if (level === 2) {
-      playTone(context, 520, now + 1.72, 0.32, 0.24, 'sawtooth');
-    }
-
-    return;
-  }
-
-  const primaryGain = orderPrimaryGains[level];
-  const accentGain = orderAccentGains[level];
-  playTone(context, 740, now, 0.17, primaryGain, 'triangle');
-  playTone(context, 980, now + 0.23, 0.17, accentGain, 'square');
-  playTone(context, 740, now + 0.48, 0.2, primaryGain, 'triangle');
-
-  if (level >= 1) {
-    playTone(context, 980, now + 0.75, 0.2, accentGain, 'square');
+function audioStatusDescription(status: AdminAlertAudioStatus): string {
+  switch (status) {
+    case 'ready':
+      return 'Order C và chuông Dual ring đã sẵn sàng phát.';
+    case 'muted':
+      return 'Âm thanh đã được tắt có chủ ý trên máy này.';
+    case 'unsupported':
+      return 'Trình duyệt hiện tại không cung cấp Web Audio.';
+    case 'error':
+      return 'Không thể khởi động thiết bị âm thanh.';
+    case 'initializing':
+      return 'Ứng dụng đang thử khôi phục âm thanh tự động.';
+    case 'needs-interaction':
+      return 'Click hoặc nhấn phím bất kỳ trong ứng dụng để mở khóa âm thanh.';
   }
 }
 
@@ -184,6 +188,54 @@ function notificationBody(alert: AdminAlert): string {
   }
 
   return `${alert.servicePoint.name}: ${alert.totalQuantity} món · ${moneyFormatter.format(alert.totalVnd)}`;
+}
+
+function alertPriorityRank(alert: AdminAlert): number {
+  if (alert.acknowledgedAt === null && alert.kind === 'SERVICE_REQUEST') {
+    return 0;
+  }
+
+  if (alert.acknowledgedAt === null && alert.kind === 'ORDER') {
+    return 1;
+  }
+
+  if (alert.kind === 'SERVICE_REQUEST') {
+    return 2;
+  }
+
+  return 3;
+}
+
+function alertHeading(alert: AdminAlert): string {
+  return alert.kind === 'SERVICE_REQUEST'
+    ? `${alert.servicePoint.name} đang gọi nhân viên`
+    : `Có order mới tại ${alert.servicePoint.name}`;
+}
+
+function AlertBellIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+      <path d="M10 21h4" />
+    </svg>
+  );
+}
+
+function AlertCloseIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="m7 7 10 10M17 7 7 17" />
+    </svg>
+  );
+}
+
+function AlertReceiptIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9">
+      <path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z" />
+      <path d="M9 8h6M9 12h6" />
+    </svg>
+  );
 }
 
 function isAdminRuntimePath(pathname: string): boolean {
@@ -212,17 +264,23 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
     refetchInterval: realtimeStatus === 'connected' ? false : 15_000,
   });
   const [panelOpen, setPanelOpen] = useState(false);
-  const [alertsEnabled, setAlertsEnabled] = useState(false);
+  const [audioDesired, setAudioDesired] = useState<boolean>(() => readAudioPreference().desired);
+  const [audioStatus, setAudioStatus] = useState<AdminAlertAudioStatus>(() =>
+    readAudioPreference().desired ? 'initializing' : 'muted',
+  );
   const [isAudioOwner, setIsAudioOwner] = useState(false);
-  const [enableError, setEnableError] = useState<string | null>(null);
+  const [audioError, setAudioError] = useState<string | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission>(
     typeof Notification === 'undefined' ? 'denied' : Notification.permission,
   );
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const audioEngineRef = useRef<AdminAlertAudioEngine | null>(null);
+  const audioDesiredRef = useRef(audioDesired);
+  const audioStateListenerCleanupRef = useRef<(() => void) | null>(null);
   const tabIdRef = useRef(createTabId());
   const originalTitleRef = useRef(document.title);
   const previousUnacknowledgedCountRef = useRef(0);
   const knownAlertIdsRef = useRef<Set<string> | null>(null);
+  const alertDialogRef = useRef<HTMLElement | null>(null);
 
   const alerts = alertsQuery.data?.alerts ?? EMPTY_ALERTS;
   const unacknowledgedAlerts = useMemo(
@@ -230,6 +288,20 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
     [alerts],
   );
   const unacknowledgedCount = unacknowledgedAlerts.length;
+  const prioritizedAlerts = useMemo(
+    () =>
+      [...alerts].sort((left, right) => {
+        const rankDifference = alertPriorityRank(left) - alertPriorityRank(right);
+
+        if (rankDifference !== 0) {
+          return rankDifference;
+        }
+
+        return Date.parse(left.createdAt) - Date.parse(right.createdAt);
+      }),
+    [alerts],
+  );
+  const primaryAlert = prioritizedAlerts[0] ?? null;
   const highestPriorityKind: AdminAlert['kind'] | null = unacknowledgedAlerts.some(
     (alert) => alert.kind === 'SERVICE_REQUEST',
   )
@@ -253,7 +325,8 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
       }, null);
   }, [highestPriorityKind, unacknowledgedAlerts]);
   const runtimeActive = enabledForRoute && sessionQuery.isSuccess;
-  const audioActive = runtimeActive && alertsEnabled;
+  const audioActive = runtimeActive && audioDesired && audioStatus === 'ready';
+  const ownershipActive = runtimeActive && (audioDesired || notificationPermission === 'granted');
   const ownsAudio = audioActive && isAudioOwner;
 
   const confirmOrderMutation = useMutation({
@@ -285,33 +358,201 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
     },
   });
 
-  const enableAlerts = useCallback(async () => {
-    setEnableError(null);
+  const syncAudioStatus = useCallback((engine: AdminAlertAudioEngine): void => {
+    if (!audioDesiredRef.current) {
+      setAudioStatus('muted');
+      return;
+    }
+
+    if (engine.context.state === 'running') {
+      setAudioStatus('ready');
+      setAudioError(null);
+      writeAudioPreference({
+        desired: true,
+        lastSuccessfulAt: new Date().toISOString(),
+      });
+      return;
+    }
+
+    if (engine.context.state === 'closed') {
+      setAudioStatus('error');
+      setAudioError('Thiết bị âm thanh đã đóng.');
+      return;
+    }
+
+    setAudioStatus('needs-interaction');
+  }, []);
+
+  const ensureAudioEngine = useCallback((): AdminAlertAudioEngine | null => {
+    const existing = audioEngineRef.current;
+
+    if (existing && existing.context.state !== 'closed') {
+      return existing;
+    }
+
+    const audioWindow = window as typeof window & {
+      AudioContext?: typeof AudioContext;
+      webkitAudioContext?: typeof AudioContext;
+    };
+    const AudioContextConstructor = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
+
+    if (!AudioContextConstructor) {
+      setAudioStatus('unsupported');
+      setAudioError('Trình duyệt không hỗ trợ Web Audio.');
+      return null;
+    }
+
+    audioStateListenerCleanupRef.current?.();
+
+    const engine = createAdminAlertAudioEngine(new AudioContextConstructor());
+    const handleStateChange = (): void => syncAudioStatus(engine);
+
+    engine.context.addEventListener('statechange', handleStateChange);
+    audioStateListenerCleanupRef.current = () => {
+      engine.context.removeEventListener('statechange', handleStateChange);
+    };
+    audioEngineRef.current = engine;
+    syncAudioStatus(engine);
+
+    return engine;
+  }, [syncAudioStatus]);
+
+  const activateAudio = useCallback(async (): Promise<void> => {
+    audioDesiredRef.current = true;
+    setAudioDesired(true);
+    setAudioError(null);
+    writeAudioPreference({ desired: true });
+
+    const engine = ensureAudioEngine();
+
+    if (!engine) {
+      return;
+    }
+
+    setAudioStatus(engine.context.state === 'running' ? 'ready' : 'initializing');
 
     try {
-      const AudioContextConstructor = window.AudioContext;
-      const context = audioContextRef.current ?? new AudioContextConstructor();
-      audioContextRef.current = context;
-      await context.resume();
-      playAlertPattern(context, 'ORDER');
-      setAlertsEnabled(true);
-
-      if (typeof Notification !== 'undefined') {
-        const permission =
-          Notification.permission === 'default'
-            ? await Notification.requestPermission()
-            : Notification.permission;
-        setNotificationPermission(permission);
-      }
+      await engine.context.resume();
+      syncAudioStatus(engine);
     } catch (error) {
-      setAlertsEnabled(false);
-      setEnableError(
-        error instanceof Error
-          ? error.message
-          : 'Không thể bật âm thanh cảnh báo trên trình duyệt này.',
+      setAudioStatus('needs-interaction');
+      setAudioError(
+        error instanceof Error ? error.message : 'Trình duyệt chưa cho phép phát âm thanh tự động.',
       );
     }
+  }, [ensureAudioEngine, syncAudioStatus]);
+
+  const muteAudio = useCallback(async (): Promise<void> => {
+    audioDesiredRef.current = false;
+    setAudioDesired(false);
+    setAudioStatus('muted');
+    setAudioError(null);
+    setIsAudioOwner(false);
+    writeAudioPreference({ desired: false });
+
+    const engine = audioEngineRef.current;
+
+    if (engine?.context.state === 'running') {
+      try {
+        await engine.context.suspend();
+      } catch {
+        // The desired state remains muted even if the browser refuses to suspend.
+      }
+    }
   }, []);
+
+  const testAudio = useCallback(async (): Promise<void> => {
+    await activateAudio();
+
+    const engine = audioEngineRef.current;
+
+    if (engine?.context.state === 'running') {
+      engine.play(highestPriorityKind ?? 'ORDER', 0);
+    }
+  }, [activateAudio, highestPriorityKind]);
+
+  const requestNotificationPermission = useCallback(async (): Promise<void> => {
+    if (typeof Notification === 'undefined') {
+      setNotificationPermission('denied');
+      return;
+    }
+
+    const permission =
+      Notification.permission === 'default'
+        ? await Notification.requestPermission()
+        : Notification.permission;
+    setNotificationPermission(permission);
+  }, []);
+
+  useEffect(() => {
+    audioDesiredRef.current = audioDesired;
+  }, [audioDesired]);
+
+  useEffect(() => {
+    const adminPath = location.pathname.startsWith('/admin');
+
+    if (!adminPath || !audioDesired) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      void activateAudio();
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [activateAudio, audioDesired, location.pathname]);
+
+  useEffect(() => {
+    const adminPath = location.pathname.startsWith('/admin');
+
+    if (!adminPath || !audioDesired || audioStatus === 'ready' || audioStatus === 'unsupported') {
+      return;
+    }
+
+    const unlockAudio = (): void => {
+      void activateAudio();
+    };
+
+    window.addEventListener('pointerdown', unlockAudio, {
+      capture: true,
+      once: true,
+    });
+    window.addEventListener('keydown', unlockAudio, {
+      capture: true,
+      once: true,
+    });
+
+    return () => {
+      window.removeEventListener('pointerdown', unlockAudio, true);
+      window.removeEventListener('keydown', unlockAudio, true);
+    };
+  }, [activateAudio, audioDesired, audioStatus, location.pathname]);
+
+  useEffect(() => {
+    const adminPath = location.pathname.startsWith('/admin');
+
+    if (!adminPath || !audioDesired) {
+      return;
+    }
+
+    const recoverAudio = (): void => {
+      if (typeof Notification !== 'undefined') {
+        setNotificationPermission(Notification.permission);
+      }
+
+      if (document.visibilityState === 'visible') {
+        void activateAudio();
+      }
+    };
+
+    window.addEventListener('focus', recoverAudio);
+    document.addEventListener('visibilitychange', recoverAudio);
+
+    return () => {
+      window.removeEventListener('focus', recoverAudio);
+      document.removeEventListener('visibilitychange', recoverAudio);
+    };
+  }, [activateAudio, audioDesired, location.pathname]);
 
   useEffect(() => {
     if (!enabledForRoute) {
@@ -332,7 +573,72 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
   }, [enabledForRoute, unacknowledgedCount]);
 
   useEffect(() => {
-    if (!audioActive) {
+    if (!panelOpen || !enabledForRoute) {
+      return;
+    }
+
+    const dialog = alertDialogRef.current;
+    const previousOverflow = document.body.style.overflow;
+    const previousFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    document.body.style.overflow = 'hidden';
+
+    const frame = window.requestAnimationFrame(() => {
+      dialog
+        ?.querySelector<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        )
+        ?.focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setPanelOpen(false);
+        return;
+      }
+
+      if (event.key !== 'Tab' || !dialog) {
+        return;
+      }
+
+      const controls = Array.from(
+        dialog.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+
+      const first = controls[0];
+      const last = controls.at(-1);
+
+      if (!first || !last) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [enabledForRoute, panelOpen]);
+
+  useEffect(() => {
+    if (!ownershipActive) {
       return;
     }
 
@@ -370,16 +676,16 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
         removeAudioOwner();
       }
     };
-  }, [audioActive]);
+  }, [ownershipActive]);
 
   useEffect(() => {
     if (!audioActive || !isAudioOwner || !highestPriorityKind || !oldestPriorityAlertCreatedAt) {
       return;
     }
 
-    const context = audioContextRef.current;
+    const engine = audioEngineRef.current;
 
-    if (!context) {
+    if (!engine) {
       return;
     }
 
@@ -396,11 +702,11 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
         lease !== null && lease.tabId === tabIdRef.current && lease.expiresAt > Date.now();
       const level = alertEscalationLevel(oldestPriorityAlertCreatedAt);
 
-      if (ownsCurrentLease && context.state === 'running') {
-        playAlertPattern(context, highestPriorityKind, level);
+      if (ownsCurrentLease && engine.context.state === 'running') {
+        engine.play(highestPriorityKind, level);
       }
 
-      timer = window.setTimeout(ring, alertRepeatDelay(highestPriorityKind, level));
+      timer = window.setTimeout(ring, adminAlertRepeatDelay(highestPriorityKind, level));
     };
 
     ring();
@@ -434,7 +740,7 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
 
     if (
       document.hidden &&
-      audioActive &&
+      runtimeActive &&
       ownsCurrentLease &&
       notificationPermission === 'granted' &&
       typeof Notification !== 'undefined'
@@ -472,8 +778,8 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
     knownAlertIdsRef.current = currentIds;
   }, [
     alertsQuery.data,
-    audioActive,
     enabledForRoute,
+    runtimeActive,
     navigate,
     notificationPermission,
     unacknowledgedAlerts,
@@ -506,7 +812,16 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
     const originalTitle = originalTitleRef.current;
 
     return () => {
-      void audioContextRef.current?.close();
+      audioStateListenerCleanupRef.current?.();
+      audioStateListenerCleanupRef.current = null;
+
+      const engine = audioEngineRef.current;
+      audioEngineRef.current = null;
+
+      if (engine && engine.context.state !== 'closed') {
+        void engine.context.close();
+      }
+
       document.title = originalTitle;
     };
   }, []);
@@ -526,213 +841,322 @@ export function AdminAlertProvider({ children }: PropsWithChildren) {
       {children}
 
       {enabledForRoute && sessionQuery.isSuccess ? (
-        <div className="fixed bottom-5 right-5 z-[80] flex max-w-[calc(100vw-2.5rem)] flex-col items-end gap-3">
-          {!alertsEnabled ? (
+        <div className="admin-alert-launcher">
+          {audioStatus === 'ready' ? (
+            <span
+              className="admin-alert-audio-status is-ready"
+              title="Order C và chuông Dual ring đã sẵn sàng"
+            >
+              <i />
+              Âm thanh sẵn sàng
+            </span>
+          ) : (
             <button
               type="button"
+              className={`admin-alert-audio-status is-${audioStatus}`}
               onClick={() => {
-                void enableAlerts();
+                void activateAudio();
               }}
-              className="rounded-xl bg-warning px-4 py-3 text-sm font-black text-white shadow-panel"
             >
-              Bật âm thanh cảnh báo
+              <i />
+              {audioStatusLabel(audioStatus)}
             </button>
-          ) : null}
+          )}
 
-          {enableError ? (
-            <p
-              role="alert"
-              className="max-w-sm rounded-xl bg-danger-soft px-4 py-3 text-sm font-bold text-danger shadow-panel"
-            >
-              Không bật được âm thanh: {enableError}
+          {audioError ? (
+            <p className="admin-alert-enable-error" role="alert">
+              {audioError}
             </p>
           ) : null}
 
           <button
             type="button"
-            onClick={() => setPanelOpen((current) => !current)}
-            className={`rounded-full px-5 py-3 text-sm font-black text-white shadow-panel ${
-              unacknowledgedCount > 0 ? 'bg-danger' : 'bg-brand'
-            }`}
+            className={`admin-alert-bell${unacknowledgedCount > 0 ? ' has-alerts' : ''}`}
+            aria-label={`Mở cảnh báo vận hành, ${alerts.length} cảnh báo đang hoạt động, ${unacknowledgedCount} chưa xác nhận`}
             aria-expanded={panelOpen}
+            onClick={() => setPanelOpen(true)}
           >
-            Cảnh báo ({unacknowledgedCount})
+            <AlertBellIcon />
+            {alerts.length > 0 ? <span>{alerts.length > 99 ? '99+' : alerts.length}</span> : null}
           </button>
         </div>
       ) : null}
 
       {enabledForRoute && sessionQuery.isSuccess && panelOpen ? (
-        <aside
-          role="dialog"
-          aria-label="Cảnh báo vận hành"
-          className="fixed bottom-24 right-5 top-5 z-[70] flex w-[430px] max-w-[calc(100vw-2.5rem)] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-panel"
-        >
-          <header className="flex items-start justify-between gap-4 border-b border-line p-4">
-            <div>
-              <h2 className="text-xl font-black">Cảnh báo vận hành</h2>
-              <p className="mt-1 text-xs font-semibold text-muted">
-                {realtimeStatus === 'connected'
-                  ? 'Realtime đang kết nối'
-                  : 'Đang dùng polling dự phòng'}
-                {' · '}
-                {alertsEnabled
-                  ? ownsAudio
-                    ? 'Tab này đang phát chuông'
-                    : 'Tab admin khác đang phát chuông'
-                  : 'Âm thanh chưa bật'}
-              </p>
-              {notificationPermission === 'denied' ? (
-                <p className="mt-1 text-xs font-bold text-warning">
-                  Trình duyệt đang chặn thông báo hệ điều hành.
+        <div className="admin-alert-modal-backdrop">
+          <section
+            ref={alertDialogRef}
+            className={`admin-alert-modal${
+              primaryAlert?.kind === 'SERVICE_REQUEST'
+                ? ' is-service-priority'
+                : ' is-order-priority'
+            }`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="admin-alert-modal-title"
+            tabIndex={-1}
+          >
+            <header className="admin-alert-modal-header">
+              <div className="admin-alert-modal-icon">
+                {primaryAlert?.kind === 'ORDER' ? <AlertReceiptIcon /> : <AlertBellIcon />}
+              </div>
+
+              <div className="admin-alert-modal-title">
+                <span>
+                  {primaryAlert?.kind === 'SERVICE_REQUEST'
+                    ? 'Yêu cầu ưu tiên cao'
+                    : primaryAlert?.kind === 'ORDER'
+                      ? 'Order cần xử lý'
+                      : 'Trung tâm cảnh báo'}
+                </span>
+                <h2 id="admin-alert-modal-title">
+                  {primaryAlert ? alertHeading(primaryAlert) : 'Cảnh báo vận hành'}
+                </h2>
+                <p>
+                  {realtimeStatus === 'connected'
+                    ? 'Realtime đang kết nối'
+                    : 'Đang dùng polling dự phòng mỗi 15 giây'}
+                  {' · '}
+                  {audioStatus === 'ready'
+                    ? ownsAudio
+                      ? 'Tab này đang phát chuông'
+                      : 'Âm thanh sẵn sàng · tab khác có thể đang giữ chuông'
+                    : audioStatusLabel(audioStatus)}
                 </p>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={() => setPanelOpen(false)}
-              className="rounded-lg border border-line px-3 py-2 text-sm font-black"
-            >
-              Đóng
-            </button>
-          </header>
+              </div>
 
-          {mutationError instanceof Error ? (
-            <p className="m-4 rounded-xl bg-danger-soft px-4 py-3 text-sm font-bold text-danger">
-              {mutationError.message}
-            </p>
-          ) : null}
-
-          <div className="flex-1 space-y-3 overflow-y-auto p-4" aria-live="polite">
-            {alertsQuery.isPending ? (
-              <p className="rounded-xl bg-neutral-soft px-4 py-3 text-sm font-bold text-muted">
-                Đang tải cảnh báo…
-              </p>
-            ) : alertsQuery.isError ? (
               <button
                 type="button"
-                onClick={() => void alertsQuery.refetch()}
-                className="w-full rounded-xl bg-danger-soft px-4 py-3 text-sm font-black text-danger"
+                className="admin-alert-modal-close"
+                aria-label="Đóng trung tâm cảnh báo"
+                onClick={() => setPanelOpen(false)}
               >
-                Không tải được cảnh báo — thử lại
+                <AlertCloseIcon />
               </button>
-            ) : alerts.length === 0 ? (
-              <p className="rounded-xl bg-success-soft px-4 py-3 text-sm font-bold text-success">
-                Không có yêu cầu nào đang chờ.
-              </p>
-            ) : (
-              alerts.map((alert) => {
-                const acknowledged = alert.acknowledgedAt !== null;
-                const id = alertId(alert);
+            </header>
 
-                return (
-                  <article
-                    key={id}
-                    className={`rounded-xl border p-4 ${
-                      alert.kind === 'SERVICE_REQUEST'
-                        ? 'border-danger/30 bg-danger-soft'
-                        : 'border-warning/30 bg-warning-soft'
-                    }`}
+            <div className="admin-alert-modal-body">
+              <div className="admin-alert-modal-summary">
+                <div>
+                  <span>Chưa xác nhận</span>
+                  <strong>{unacknowledgedCount}</strong>
+                </div>
+                <div>
+                  <span>Tổng cảnh báo</span>
+                  <strong>{alerts.length}</strong>
+                </div>
+                <div>
+                  <span>Ưu tiên hiện tại</span>
+                  <strong>
+                    {highestPriorityKind === 'SERVICE_REQUEST'
+                      ? 'Gọi nhân viên'
+                      : highestPriorityKind === 'ORDER'
+                        ? 'Order mới'
+                        : 'Không có'}
+                  </strong>
+                </div>
+              </div>
+
+              <div className={`admin-alert-audio-controls is-${audioStatus}`}>
+                <div>
+                  <strong>Âm thanh cảnh báo</strong>
+                  <span>{audioStatusDescription(audioStatus)}</span>
+                </div>
+
+                <div>
+                  {audioStatus === 'ready' ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void testAudio();
+                        }}
+                      >
+                        Thử chuông
+                      </button>
+                      <button
+                        type="button"
+                        className="is-secondary"
+                        onClick={() => {
+                          void muteAudio();
+                        }}
+                      >
+                        Tắt âm thanh
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void activateAudio();
+                      }}
+                    >
+                      Bật âm thanh
+                    </button>
+                  )}
+
+                  {notificationPermission === 'default' ? (
+                    <button
+                      type="button"
+                      className="is-secondary"
+                      onClick={() => {
+                        void requestNotificationPermission();
+                      }}
+                    >
+                      Bật thông báo hệ điều hành
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {notificationPermission === 'denied' ? (
+                <p className="admin-alert-permission-warning">
+                  Trình duyệt đang chặn thông báo hệ điều hành. Modal và chuông trong trang vẫn hoạt
+                  động.
+                </p>
+              ) : null}
+
+              {mutationError instanceof Error ? (
+                <p className="admin-alert-mutation-error" role="alert">
+                  {mutationError.message}
+                </p>
+              ) : null}
+
+              <div className="admin-alert-list" aria-live="polite">
+                {alertsQuery.isPending ? (
+                  <p className="admin-alert-list-state">Đang tải cảnh báo…</p>
+                ) : alertsQuery.isError ? (
+                  <button
+                    type="button"
+                    className="admin-alert-list-retry"
+                    onClick={() => void alertsQuery.refetch()}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-black uppercase tracking-wide text-muted">
-                          {alert.kind === 'SERVICE_REQUEST' ? 'Gọi nhân viên' : 'Order mới'}
+                    Không tải được cảnh báo — thử lại
+                  </button>
+                ) : prioritizedAlerts.length === 0 ? (
+                  <p className="admin-alert-list-empty">Không có yêu cầu nào đang chờ.</p>
+                ) : (
+                  prioritizedAlerts.map((alert, index) => {
+                    const acknowledged = alert.acknowledgedAt !== null;
+                    const id = alertId(alert);
+
+                    return (
+                      <article
+                        key={id}
+                        className={`admin-alert-card is-${alert.kind.toLowerCase()}${
+                          index === 0 ? ' is-primary' : ''
+                        }${acknowledged ? ' is-acknowledged' : ''}`}
+                      >
+                        <div className="admin-alert-card-head">
+                          <div>
+                            <span>
+                              {alert.kind === 'SERVICE_REQUEST' ? 'Gọi nhân viên' : 'Order mới'}
+                            </span>
+                            <h3>{alert.servicePoint.name}</h3>
+                          </div>
+                          <strong>
+                            {alert.kind === 'ORDER'
+                              ? acknowledged
+                                ? 'Đã xem · chưa xác nhận'
+                                : 'Chưa xác nhận'
+                              : acknowledged
+                                ? 'Đã xem'
+                                : 'Chưa xem'}
+                          </strong>
+                        </div>
+
+                        <p className="admin-alert-card-time">
+                          Gửi lúc {timeFormatter.format(new Date(alert.createdAt))}
                         </p>
-                        <h3 className="mt-1 text-lg font-black">{alert.servicePoint.name}</h3>
-                      </div>
-                      <span className="rounded-full bg-white px-3 py-1 text-xs font-black">
-                        {alert.kind === 'ORDER'
-                          ? acknowledged
-                            ? 'Đã xem · chưa xác nhận'
-                            : 'Chưa xác nhận'
-                          : acknowledged
-                            ? 'Đã xem'
-                            : 'Chưa xem'}
-                      </span>
-                    </div>
 
-                    <p className="mt-2 text-xs font-semibold text-muted">
-                      Gửi lúc {timeFormatter.format(new Date(alert.createdAt))}
-                    </p>
+                        {alert.kind === 'SERVICE_REQUEST' ? (
+                          <p className="admin-alert-card-message">
+                            {alert.message ?? `${alert.servicePoint.name} đang gọi nhân viên.`}
+                          </p>
+                        ) : (
+                          <p className="admin-alert-card-order-summary">
+                            {alert.totalQuantity} món · {moneyFormatter.format(alert.totalVnd)}
+                            {alert.note ? ` · ${alert.note}` : ''}
+                          </p>
+                        )}
 
-                    {alert.kind === 'SERVICE_REQUEST' ? (
-                      alert.message ? (
-                        <p className="mt-3 rounded-lg bg-white/80 px-3 py-2 text-sm font-semibold">
-                          {alert.message}
-                        </p>
-                      ) : null
-                    ) : (
-                      <p className="mt-3 text-sm font-bold">
-                        {alert.totalQuantity} món · {moneyFormatter.format(alert.totalVnd)}
-                        {alert.note ? ` · ${alert.note}` : ''}
-                      </p>
-                    )}
+                        <div className="admin-alert-card-actions">
+                          {alert.kind === 'ORDER' ? (
+                            <button
+                              type="button"
+                              disabled={
+                                confirmOrderMutation.isPending &&
+                                confirmOrderMutation.variables?.orderId === alert.orderId
+                              }
+                              onClick={() =>
+                                confirmOrderMutation.mutate({
+                                  orderId: alert.orderId,
+                                })
+                              }
+                            >
+                              {confirmOrderMutation.isPending &&
+                              confirmOrderMutation.variables?.orderId === alert.orderId
+                                ? 'Đang xác nhận…'
+                                : 'Xác nhận đơn'}
+                            </button>
+                          ) : !acknowledged ? (
+                            <button
+                              type="button"
+                              disabled={
+                                acknowledgeServiceRequestMutation.isPending &&
+                                acknowledgeServiceRequestMutation.variables ===
+                                  alert.serviceRequestId
+                              }
+                              onClick={() =>
+                                acknowledgeServiceRequestMutation.mutate(alert.serviceRequestId)
+                              }
+                            >
+                              {acknowledgeServiceRequestMutation.isPending &&
+                              acknowledgeServiceRequestMutation.variables === alert.serviceRequestId
+                                ? 'Đang ghi nhận…'
+                                : 'Đã xem'}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="is-danger"
+                              disabled={
+                                resolveServiceRequestMutation.isPending &&
+                                resolveServiceRequestMutation.variables === alert.serviceRequestId
+                              }
+                              onClick={() =>
+                                resolveServiceRequestMutation.mutate(alert.serviceRequestId)
+                              }
+                            >
+                              {resolveServiceRequestMutation.isPending &&
+                              resolveServiceRequestMutation.variables === alert.serviceRequestId
+                                ? 'Đang xác nhận…'
+                                : 'Đã đến hỗ trợ'}
+                            </button>
+                          )}
 
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {alert.kind === 'ORDER' ? (
-                        <button
-                          type="button"
-                          disabled={
-                            confirmOrderMutation.isPending &&
-                            confirmOrderMutation.variables?.orderId === alert.orderId
-                          }
-                          onClick={() =>
-                            confirmOrderMutation.mutate({
-                              orderId: alert.orderId,
-                            })
-                          }
-                          className="rounded-lg bg-ink px-3 py-2 text-sm font-black text-white disabled:opacity-50"
-                        >
-                          Xác nhận đơn
-                        </button>
-                      ) : !acknowledged ? (
-                        <button
-                          type="button"
-                          disabled={
-                            acknowledgeServiceRequestMutation.isPending &&
-                            acknowledgeServiceRequestMutation.variables === alert.serviceRequestId
-                          }
-                          onClick={() =>
-                            acknowledgeServiceRequestMutation.mutate(alert.serviceRequestId)
-                          }
-                          className="rounded-lg bg-ink px-3 py-2 text-sm font-black text-white disabled:opacity-50"
-                        >
-                          Đã xem
-                        </button>
-                      ) : null}
+                          {alert.billId ? (
+                            <Link
+                              to={`/admin/bills/${alert.billId}`}
+                              onClick={() => setPanelOpen(false)}
+                            >
+                              Mở bill
+                            </Link>
+                          ) : null}
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </div>
 
-                      {alert.billId ? (
-                        <Link
-                          to={`/admin/bills/${alert.billId}`}
-                          onClick={() => setPanelOpen(false)}
-                          className="rounded-lg border border-ink px-3 py-2 text-sm font-black text-ink"
-                        >
-                          Mở bill
-                        </Link>
-                      ) : null}
-
-                      {alert.kind === 'SERVICE_REQUEST' && acknowledged ? (
-                        <button
-                          type="button"
-                          disabled={
-                            resolveServiceRequestMutation.isPending &&
-                            resolveServiceRequestMutation.variables === alert.serviceRequestId
-                          }
-                          onClick={() =>
-                            resolveServiceRequestMutation.mutate(alert.serviceRequestId)
-                          }
-                          className="rounded-lg bg-danger px-3 py-2 text-sm font-black text-white disabled:opacity-50"
-                        >
-                          Đã đến hỗ trợ
-                        </button>
-                      ) : null}
-                    </div>
-                  </article>
-                );
-              })
-            )}
-          </div>
-        </aside>
+              <p className="admin-alert-modal-note">
+                Đóng modal không xác nhận cảnh báo. Chuông chỉ dừng khi alert được xử lý theo đúng
+                workflow.
+              </p>
+            </div>
+          </section>
+        </div>
       ) : null}
     </AdminAlertRuntimeContext.Provider>
   );

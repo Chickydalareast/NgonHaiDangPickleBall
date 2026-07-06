@@ -2,9 +2,29 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="Ngon Hải Đăng Pickleball — hệ thống gọi món tại sân." />
-    <title>Ngon Hải Đăng Pickleball</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta
+      name="description"
+      content="Ngọn Hải Đăng Pickleball — xem thực đơn, gọi món và theo dõi hóa đơn tại sân."
+    />
+    <meta name="theme-color" content="#109b91" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@200..800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <link rel="apple-touch-icon" href="/logo.png" />
+    <title>Ngọn Hải Đăng Pickleball</title>
+    <script>
+      if (window.location.pathname.startsWith('/admin')) {
+        const manifestLink = document.createElement('link');
+        manifestLink.rel = 'manifest';
+        manifestLink.href = '/admin.webmanifest';
+        document.head.append(manifestLink);
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
