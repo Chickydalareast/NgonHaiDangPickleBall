@@ -18,7 +18,7 @@
     "format:check": "prettier --check .",
     "env:check": "tsx scripts/check-env.ts",
     "toolchain:check": "node scripts/assert-toolchain.mjs",
-    "check": "pnpm toolchain:check && pnpm migrations:verify && pnpm format:check && pnpm contracts:build && pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm env:check && pnpm compose:check",
+    "check": "pnpm toolchain:check && pnpm migrations:verify && pnpm format:check && pnpm contracts:build && pnpm lint && pnpm typecheck && pnpm test && pnpm admin-action-media:verify && pnpm build && pnpm env:check && pnpm compose:check",
     "dev": "pnpm contracts:build && pnpm --parallel --filter @nhdp/api --filter @nhdp/web run dev",
     "dev:api": "pnpm --filter @nhdp/api dev",
     "dev:web": "pnpm --filter @nhdp/web dev",
@@ -80,7 +80,8 @@
     "compose:check:production": "docker compose --env-file .env.production.example -f compose.production.yaml config --quiet",
     "pwa:verify:source": "tsx scripts/verify-admin-installable.ts --source-only",
     "ci:source": "pnpm check && pnpm audio:verify && pnpm pwa:verify:source && pnpm env:check:production:example && pnpm compose:check:production",
-    "env:check:production": "tsx scripts/check-production-env.ts .env.production"
+    "env:check:production": "tsx scripts/check-production-env.ts .env.production",
+    "admin-action-media:verify": "tsx scripts/verify-admin-action-media-contract.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
