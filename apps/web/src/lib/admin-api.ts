@@ -238,9 +238,10 @@ export async function acknowledgeAdminOrderAlert(
   orderId: string,
 ): Promise<AcknowledgeAdminAlertResponse> {
   return acknowledgeAdminAlertResponseSchema.parse(
-    await request(`/api/admin/alerts/orders/${encodeURIComponent(orderId)}/acknowledge`, {
-      method: 'PATCH',
-    }),
+    await request(
+      `/api/admin/alerts/orders/${encodeURIComponent(orderId)}/acknowledge`,
+      jsonRequest('PATCH', null),
+    ),
   );
 }
 
@@ -277,7 +278,7 @@ export async function acknowledgeAdminServiceRequestAlert(
   return acknowledgeAdminAlertResponseSchema.parse(
     await request(
       `/api/admin/alerts/service-requests/${encodeURIComponent(requestId)}/acknowledge`,
-      { method: 'PATCH' },
+      jsonRequest('PATCH', null),
     ),
   );
 }
@@ -466,9 +467,10 @@ export async function resolveAdminServiceRequest(
   requestId: string,
 ): Promise<ResolveAdminServiceRequestResponse> {
   return resolveAdminServiceRequestResponseSchema.parse(
-    await request(`/api/admin/service-requests/${encodeURIComponent(requestId)}/resolve`, {
-      method: 'PATCH',
-    }),
+    await request(
+      `/api/admin/service-requests/${encodeURIComponent(requestId)}/resolve`,
+      jsonRequest('PATCH', null),
+    ),
   );
 }
 

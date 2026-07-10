@@ -156,3 +156,66 @@ void test('PATCH resolve service request maps non-pending state to 409', async (
     'ADMIN_SERVICE_REQUEST_NOT_PENDING',
   );
 });
+
+void test('PATCH resolve accepts canonical JSON null', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: authService(),
+      adminServiceRequestService: service(),
+    },
+  );
+  context.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/admin/service-requests/${requestId}/resolve`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/json',
+    },
+    payload: 'null',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(resolveAdminServiceRequestResponseSchema.parse(response.json()).status, 'RESOLVED');
+});
+
+void test('PATCH resolve accepts compatible foreign media type only for null', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: authService(),
+      adminServiceRequestService: service(),
+    },
+  );
+  context.after(() => app.close());
+
+  const accepted = await app.inject({
+    method: 'PATCH',
+    url: `/admin/service-requests/${requestId}/resolve`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/x-nhdp-empty-action',
+    },
+    payload: 'null',
+  });
+
+  assert.equal(accepted.statusCode, 200);
+
+  const rejected = await app.inject({
+    method: 'PATCH',
+    url: `/admin/service-requests/${requestId}/resolve`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/x-nhdp-empty-action',
+    },
+    payload: '{"reason":"unexpected"}',
+  });
+
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(
+    serviceRequestApiErrorSchema.parse(rejected.json()).code,
+    'INVALID_ADMIN_SERVICE_REQUEST',
+  );
+});

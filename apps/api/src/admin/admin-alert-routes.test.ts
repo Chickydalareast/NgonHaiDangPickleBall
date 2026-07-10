@@ -196,3 +196,86 @@ void test('PATCH alert acknowledge maps inactive domain state to conflict', asyn
   assert.equal(response.statusCode, 409);
   assert.equal(adminAlertApiErrorSchema.parse(response.json()).code, 'ADMIN_ALERT_NOT_ACTIVE');
 });
+
+void test('PATCH service request alert acknowledge accepts canonical JSON null', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: createAuthService(),
+      adminAlertService: createAlertService(),
+    },
+  );
+
+  context.after(async () => app.close());
+
+  const response = await app.inject({
+    method: 'PATCH',
+    url: `/admin/alerts/service-requests/${requestId}/acknowledge`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/json',
+    },
+    payload: 'null',
+  });
+
+  assert.equal(response.statusCode, 200);
+  assert.equal(acknowledgeAdminAlertResponseSchema.parse(response.json()).kind, 'SERVICE_REQUEST');
+});
+
+void test('PATCH service request alert acknowledge accepts compatible foreign media type only for null', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: createAuthService(),
+      adminAlertService: createAlertService(),
+    },
+  );
+
+  context.after(async () => app.close());
+
+  const accepted = await app.inject({
+    method: 'PATCH',
+    url: `/admin/alerts/service-requests/${requestId}/acknowledge`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/x-nhdp-empty-action',
+    },
+    payload: 'null',
+  });
+
+  assert.equal(accepted.statusCode, 200);
+
+  const rejected = await app.inject({
+    method: 'PATCH',
+    url: `/admin/alerts/service-requests/${requestId}/acknowledge`,
+    headers: {
+      cookie: `${ADMIN_SESSION_COOKIE_NAME}=${rawToken}`,
+      'content-type': 'application/x-nhdp-empty-action',
+    },
+    payload: '{}',
+  });
+
+  assert.equal(rejected.statusCode, 400);
+  assert.equal(adminAlertApiErrorSchema.parse(rejected.json()).code, 'INVALID_ADMIN_ALERT_REQUEST');
+});
+
+void test('empty-action media compatibility remains isolated from auth routes', async (context) => {
+  const app = buildApp(
+    { logger: false },
+    {
+      adminAuthService: createAuthService(),
+      adminAlertService: createAlertService(),
+    },
+  );
+
+  context.after(async () => app.close());
+
+  const response = await app.inject({
+    method: 'POST',
+    url: '/auth/login',
+    headers: { 'content-type': 'application/x-nhdp-empty-action' },
+    payload: 'null',
+  });
+
+  assert.equal(response.statusCode, 415);
+});

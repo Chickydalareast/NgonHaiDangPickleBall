@@ -23,7 +23,6 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.9.0
           run_install: false
 
       - name: Setup Node.js
@@ -71,7 +70,6 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.9.0
           run_install: false
 
       - name: Setup Node.js
@@ -83,13 +81,59 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build shared contracts
+        run: pnpm contracts:build
+
       - name: Apply migrations
         run: pnpm db:migrate
 
-      - name: Seed disposable CI database and verify V1 behavior
-        run: |
-          pnpm db:seed
-          pnpm step10pro:verify:db
+      - name: Seed disposable CI database
+        run: pnpm db:seed
+
+      - name: Verify database foundation
+        run: pnpm db:verify
+
+      - name: Verify empty database migration and seed
+        run: pnpm db:verify:empty
+
+      - name: Verify public context database behavior
+        run: pnpm public:verify:db
+
+      - name: Verify order transaction behavior
+        run: pnpm order:verify:db
+
+      - name: Verify admin authentication and dashboard
+        run: pnpm auth:verify:db
+
+      - name: Verify admin realtime behavior
+        run: pnpm realtime:verify:db
+
+      - name: Verify admin order operations
+        run: pnpm operations:verify:db
+
+      - name: Verify bill completion behavior
+        run: pnpm bills:verify:db
+
+      - name: Verify call staff behavior
+        run: pnpm staff:verify:db
+
+      - name: Verify catalog behavior
+        run: pnpm catalog:verify:db
+
+      - name: Verify service points and QR behavior
+        run: pnpm service-points:verify:db
+
+      - name: Verify public bill projection
+        run: pnpm bill-projection:verify:db
+
+      - name: Verify custom charges
+        run: pnpm custom-charges:verify:db
+
+      - name: Verify partial settlements
+        run: pnpm settlements:verify:db
+
+      - name: Verify concurrency hardening
+        run: pnpm hardening:verify:db
 
   docker-runtime:
     needs: database
@@ -114,7 +158,6 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.9.0
           run_install: false
 
       - name: Setup Node.js

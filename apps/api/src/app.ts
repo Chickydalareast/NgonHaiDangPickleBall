@@ -42,6 +42,13 @@ const SERVICE_NAME = '@nhdp/api';
 const SERVICE_VERSION = '0.0.0';
 const DEFAULT_COMMIT_SHA = 'unknown';
 
+function registerEmptyActionContentTypeCompatibility(app: FastifyInstance): void {
+  app.addContentTypeParser('*', { parseAs: 'string', bodyLimit: 64 }, (_request, body, done) => {
+    const normalizedBody = String(body).trim();
+    done(null, normalizedBody === '' || normalizedBody === 'null' ? null : body);
+  });
+}
+
 export interface HealthResponse {
   status: 'ok';
   service: typeof SERVICE_NAME;
@@ -214,10 +221,16 @@ export function buildApp(
       secureCookie: dependencies.adminCookieSecure ?? false,
     });
 
-    if (dependencies.adminAlertService) {
-      registerAdminAlertRoutes(app, {
-        service: dependencies.adminAlertService,
-        requireAdmin,
+    const adminAlertService = dependencies.adminAlertService;
+    if (adminAlertService) {
+      void app.register((alertApp) => {
+        registerEmptyActionContentTypeCompatibility(alertApp);
+        registerAdminAlertRoutes(alertApp, {
+          service: adminAlertService,
+          requireAdmin,
+        });
+
+        return Promise.resolve();
       });
     }
 
@@ -277,10 +290,16 @@ export function buildApp(
       });
     }
 
-    if (dependencies.adminServiceRequestService) {
-      registerAdminServiceRequestRoutes(app, {
-        service: dependencies.adminServiceRequestService,
-        requireAdmin,
+    const adminServiceRequestService = dependencies.adminServiceRequestService;
+    if (adminServiceRequestService) {
+      void app.register((serviceRequestApp) => {
+        registerEmptyActionContentTypeCompatibility(serviceRequestApp);
+        registerAdminServiceRequestRoutes(serviceRequestApp, {
+          service: adminServiceRequestService,
+          requireAdmin,
+        });
+
+        return Promise.resolve();
       });
     }
 
